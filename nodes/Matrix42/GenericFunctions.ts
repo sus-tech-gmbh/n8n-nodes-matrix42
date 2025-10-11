@@ -19,6 +19,8 @@ export async function matrix42ApiRequest(
 	const credentialType = authenticationMethod === 'basic' ? 'matrix42BasicApi' : 'matrix42TokenApi';
 	const { serverUrl } = await this.getCredentials<{ serverUrl: string }>(credentialType);
 
+	const isJson = contentType?.toLowerCase().includes('application/json');
+
 	const options: IHttpRequestOptions = {
 		headers: {
 			'Content-Type': contentType,
@@ -27,7 +29,7 @@ export async function matrix42ApiRequest(
 		body: method === 'GET' || method === 'HEAD' || method === 'DELETE' ? null : body,
 		qs: query,
 		url: uri || `${serverUrl}/m42Services/api${endpoint}`,
-		json: true,
+		json: isJson,
 		skipSslCertificateValidation: false
 	};
 

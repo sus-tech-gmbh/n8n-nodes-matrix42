@@ -26,6 +26,8 @@ import {
 import { matrix42ApiRequest } from './GenericFunctions';
 import {closeTicket, createTicket, transformTicket} from "./Matrix42TicketFunctions";
 import {executeImportDefinition} from "./Matrix42ImportFunctions";
+import {matrix42StorageFields, matrix42StorageOperations} from "./Matrix42StorageOperations";
+import {uploadFileToCI} from "./Matrix42StorageFunctions";
 
 export class Matrix42 implements INodeType {
 	description: INodeTypeDescription = {
@@ -99,6 +101,10 @@ export class Matrix42 implements INodeType {
 						name: 'Ticket',
 						value: 'ticket',
 					},
+					{
+						name: 'Storage',
+						value: 'storage',
+					},
 				],
 				default: 'ticket',
 			},
@@ -114,6 +120,10 @@ export class Matrix42 implements INodeType {
 			// Ticket
 			...matrix42TicketOperations,
 			...matrix42TicketFields,
+
+			// Storage
+			...matrix42StorageOperations,
+			...matrix42StorageFields,
 		],
 	};
 
@@ -589,6 +599,47 @@ export class Matrix42 implements INodeType {
 				});
 
 				return returnData;
+			},
+			async getStorageProviders(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				const responseData = await matrix42ApiRequest.call(
+					this,
+					'GET',
+					'/data/fragments/DWPFileStorageAccountClass',
+					{},
+					{
+						columns: "ID, Name, [Expression-ObjectID] as eoid",
+					}
+				);
+
+				if (responseData === undefined) {
+					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
+						message:  'No data got returned',
+					});
+				}
+
+				const returnData: INodePropertyOptions[] = [];
+
+				for (const storageProviderData of responseData) {
+					const storageProviderName = storageProviderData.Name;
+					const storageProviderValue = storageProviderData.ID;
+
+					returnData.push({
+						name: storageProviderName,
+						value: storageProviderValue,
+					});
+				}
+
+				returnData.sort((a, b) => {
+					if (a.name < b.name) {
+						return -1;
+					}
+					if (a.name > b.name) {
+						return 1;
+					}
+					return 0;
+				});
+
+				return returnData;
 			}
 		}
 	};
@@ -673,6 +724,15 @@ export class Matrix42 implements INodeType {
 						// import:executeImportDefinition
 						// ----------------------------------
 						responseData = await executeImportDefinition.call(this, i);
+					}
+				}
+
+				if (resource === 'storage') {
+					if (operation === 'uploadFile') {
+						// ----------------------------------
+						// storage:uploadFile
+						// ----------------------------------
+						responseData = await uploadFileToCI.call(this, i);
 					}
 				}
 
