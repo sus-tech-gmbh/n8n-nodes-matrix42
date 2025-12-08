@@ -120,3 +120,18 @@ On execution, the node:
   - Authentication methods:
     -   Matrix42 Token API (API Token ↔︎ Bearer JWT exchange)
     -   Matrix42 Basic API (HTTP Basic Authentication)
+   
+
+## Legal & Disclaimer
+
+This project is an **unofficial, community-maintained integration** for the Matrix42 ESMP **Public API**.  
+It uses only documented, publicly available endpoints as described in the official
+[Matrix42 Web Services API documentation](https://help.matrix42.com/030_ESMP/030_INT/Business_Processes_and_API_Integrations/Matrix42_Web_Services_API).
+
+Matrix42 **explicitly provides** a Public API and token-based authentication mechanism to support
+third-party integrations. This node simply wraps those endpoints for easier use within n8n.
+There is **no violation** of Matrix42’s licensing or terms of service in doing so.
+
+> **No Affiliation:**  
+> This project is **not affiliated with, endorsed, or sponsored by Matrix42 GmbH**.  
+> *MATRIX42* and related marks are trademarks of Matrix42 GmbH, used here for identification purposes only.
