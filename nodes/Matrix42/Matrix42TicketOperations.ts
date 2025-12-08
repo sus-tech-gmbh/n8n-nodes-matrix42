@@ -30,6 +30,12 @@ export const matrix42TicketOperations: INodeProperties[] = [
 				value: 'transformTicket',
 				description: 'Transform a ticket',
 				action: 'Transform a ticket',
+			},
+			{
+				name: 'Add Journal Entry',
+				value: 'addJournalEntry',
+				description: 'Add a journal entry',
+				action: 'Add a journal entry',
 			}
 		],
 		default: 'createTicket',
@@ -263,52 +269,6 @@ const createTicketOperation: INodeProperties[] = [
 		},
 		required: true,
 	},
-	// {
-	// 	displayName: 'Additional Fields',
-	// 	name: 'additionalFields',
-	// 	type: 'collection',
-	// 	placeholder: 'Add Field',
-	// 	default: {},
-	// 	displayOptions: {
-	// 		show: {
-	// 			operation: ['createTicket'],
-	// 		},
-	// 	},
-	// 	options: [
-	// 		{
-	// 			displayName: 'Custom Parameters',
-	// 			name: 'customParameters',
-	// 			type: 'fixedCollection',
-	// 			typeOptions: {
-	// 				multipleValues: true,
-	// 			},
-	// 			placeholder: 'Add Parameter',
-	// 			default: { parameter: [] },
-	// 			options: [
-	// 				{
-	// 					displayName: 'Parameter',
-	// 					name: 'parameter',
-	// 					values: [
-	// 						{
-	// 							displayName: 'Key',
-	// 							name: 'key',
-	// 							type: 'string',
-	// 							default: '',
-	// 							description: 'The parameter name',
-	// 						},
-	// 						{
-	// 							displayName: 'Value',
-	// 							name: 'value',
-	// 							type: 'string',
-	// 							default: '',
-	// 							description: 'The parameter value',
-	// 						},
-	// 					],
-	// 				},
-	// 			],
-	// 		},
-	// 	],
-	// },
 ];
 
 const closeTicketOperation: INodeProperties[] = [
@@ -660,9 +620,129 @@ const transformTicketOperation: INodeProperties[] = [
 	}
 ];
 
+const addJournalEntryOperation: INodeProperties[] = [
+	{
+		displayName: 'Ticket EOID',
+		name: 'ticketEoid',
+		type: 'string',
+		default: '',
+		description: 'The Expression-ObjectID of the Ticket/Service Request/Incident',
+		displayOptions: {
+			show: {
+				operation: ['addJournalEntry']
+			},
+		},
+		required: true,
+	},
+	{
+		displayName: 'Comments',
+		name: 'comments',
+		type: 'string',
+		default: '',
+		description: 'The content of the journal entry',
+		displayOptions: {
+			show: {
+				operation: ['addJournalEntry']
+			},
+		},
+		required: true,
+	},
+	{
+		displayName: 'Entry Type Name or ID',
+		name: 'entryType',
+		type: 'options',
+		typeOptions: {
+			loadOptionsMethod: 'getJournalEntryTypes',
+		},
+		default: '',
+		description: 'The Entry Type of the Journal Entry. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		displayOptions: {
+			show: {
+				operation: ['addJournalEntry']
+			},
+		},
+		required: true,
+	},
+	{
+		displayName: 'Creator Name or ID',
+		name: 'creator',
+		type: 'options',
+		typeOptions: {
+			loadOptionsMethod: 'getUsers',
+		},
+		default: '',
+		description: 'The Creator of the Journal Entry. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		displayOptions: {
+			show: {
+				operation: ['addJournalEntry']
+			},
+		},
+		required: true,
+	},
+	{
+		displayName: 'Visible in Portal',
+		name: 'visibleInPortal',
+		type: 'boolean',
+		default: false,
+		description: 'Whether the journal entry should be visible in portal',
+		displayOptions: {
+			show: {
+				operation: ['addJournalEntry']
+			},
+		},
+		required: true,
+	},
+	{
+		displayName: 'Additional Fields',
+		name: 'additionalFields',
+		type: 'collection',
+		placeholder: 'Add Field',
+		default: {},
+		displayOptions: {
+			show: {
+				operation: ['addJournalEntry'],
+			},
+		},
+		// eslint-disable-next-line n8n-nodes-base/node-param-collection-type-unsorted-items
+		options: [
+			{
+				displayName: 'Type ID',
+				name: 'typeId',
+				type: 'string',
+				default: undefined,
+			},
+			{
+				displayName: 'Publish',
+				name: 'publish',
+				type: 'boolean',
+				default: true,
+			},
+			{
+				displayName: 'File IDs',
+				name: 'fileIds',
+				type: 'json',
+				default: undefined,
+			},
+			{
+				displayName: 'Parameters',
+				name: 'parameters',
+				type: 'json',
+				default: '[]',
+			},
+			{
+				displayName: 'Is From Edit Dialog',
+				name: 'isFormEditDialog',
+				type: 'boolean',
+				default: false,
+			},
+		],
+	},
+];
+
 export const matrix42TicketFields: INodeProperties[] = [
 	...closeTicketOperation,
 	...createTicketOperation,
 	...transformTicketOperation,
+	...addJournalEntryOperation
 ];
 

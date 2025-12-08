@@ -131,3 +131,41 @@ export async function transformTicket(this: IExecuteFunctions, i: number) {
 
 	return returnData;
 }
+
+export async function addJournalEntry(this: IExecuteFunctions, i: number) {
+
+	const ticketEoid = this.getNodeParameter('ticketEoid', i) as string;
+	const comments = this.getNodeParameter('comments', i) as string;
+	const entryType = this.getNodeParameter('entryType', i) as number;
+	const creator = this.getNodeParameter('creator', i) as string;
+	const visibleInPortal = this.getNodeParameter('visibleInPortal', i) as boolean;
+
+	const additionalFields = this.getNodeParameter('additionalFields', i, {}) as {
+		typeId?: string;
+		publish: boolean;
+		fileIds?: string;
+		parameters: string;
+		isFormEditDialog: boolean;
+	};
+
+	const qs: IDataObject = {};
+
+	const body = {
+		ObjectId: ticketEoid,
+		Publish: additionalFields.publish,
+		Comments: comments,
+		EntryType: entryType,
+		Creator: creator,
+		VisibleInPortal: visibleInPortal,
+		Parameters: additionalFields.parameters,
+		IsFormEditDialog: additionalFields.isFormEditDialog,
+		...(additionalFields.typeId !== undefined && { TypeId: additionalFields.typeId }),
+		...(additionalFields.fileIds !== undefined && { FileIds: additionalFields.fileIds })
+	};
+
+	await matrix42ApiRequest.call(this, 'POST', '/journal/Add', body, qs);
+
+	const returnData: IDataObject[] = [{Message: "Success"}];
+
+	return returnData;
+}

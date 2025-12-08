@@ -99,6 +99,17 @@ On execution, the node:
 
 ## Version History
 
+**0.1.3:**
+- Added Operations:
+	-   Tickets: `addJournalEntry`
+
+**0.1.2:**
+- Added Operations:
+	-   Storage Operations: `uploadFile`
+
+**0.1.1:**
+- Bug Fixes
+
 **0.1.0:**
   - Initial release supporting operations across multiple resources:
     -   Data Fragments: `getFragments`, `addFragment`, `updateFragment`, `deleteFragment`

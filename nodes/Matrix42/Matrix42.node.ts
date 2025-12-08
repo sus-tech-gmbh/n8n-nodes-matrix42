@@ -24,7 +24,7 @@ import {
 	updateObject
 } from './Matrix42AsqlFunctions';
 import { matrix42ApiRequest } from './GenericFunctions';
-import {closeTicket, createTicket, transformTicket} from "./Matrix42TicketFunctions";
+import {addJournalEntry, closeTicket, createTicket, transformTicket} from "./Matrix42TicketFunctions";
 import {executeImportDefinition} from "./Matrix42ImportFunctions";
 import {matrix42StorageFields, matrix42StorageOperations} from "./Matrix42StorageOperations";
 import {uploadFileToCI} from "./Matrix42StorageFunctions";
@@ -640,7 +640,51 @@ export class Matrix42 implements INodeType {
 				});
 
 				return returnData;
-			}
+			},
+			async getJournalEntryTypes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				const responseData = await matrix42ApiRequest.call(
+					this,
+					'GET',
+					'/data/fragments/SPSJournalEntryPickupType',
+					{},
+					{
+						columns: "Value, DisplayString",
+					}
+				);
+
+				if (responseData === undefined) {
+					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
+						message:  'No data got returned',
+					});
+				}
+
+				const returnData: INodePropertyOptions[] = [];
+
+				for (const journalEntryType of responseData) {
+					const name = journalEntryType.DisplayString;
+					const value = journalEntryType.Value;
+
+					returnData.push({
+						name: name,
+						value: value,
+					});
+				}
+
+				returnData.sort((a, b) => {
+					if (a.name < b.name) {
+						return -1;
+					}
+					if (a.name > b.name) {
+						return 1;
+					}
+					return 0;
+				});
+
+				const defaultEntry = { name: 'None (Default)', value: '0' };
+				returnData.unshift(defaultEntry)
+
+				return returnData;
+			},
 		}
 	};
 
@@ -715,6 +759,11 @@ export class Matrix42 implements INodeType {
 						// ticket:transformTicket
 						// ----------------------------------
 						responseData = await transformTicket.call(this, i);
+					} else if (operation === 'addJournalEntry') {
+						// ----------------------------------
+						// ticket:addJournalEntry
+						// ----------------------------------
+						responseData = await addJournalEntry.call(this, i);
 					}
 				}
 
