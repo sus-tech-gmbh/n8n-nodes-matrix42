@@ -51,6 +51,11 @@ This node supports multiple operations across different resources:
 
 -   **Transform Ticket** (`transformTicket`): Apply a transformation to a ticket.
 
+-   **Add Journal Entry** (`addJournalEntry`): Add a journal entry to a ticket.
+
+### Storage
+
+-   **Upload File** (`uploadFile`): Upload a file.
 
 ### Import
 
