@@ -4,6 +4,7 @@ import type { IDataObject, IExecuteFunctions } from 'n8n-workflow';
 
 import { executeImportDefinition } from '../nodes/Matrix42/Matrix42ImportFunctions';
 
+// randomUUID() from node:crypto emits a canonical RFC-4122 version-4 UUID.
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 interface MockContextOptions {
@@ -28,6 +29,7 @@ function createMockContext(options: MockContextOptions = {}): MockContext {
 
 	const mockThis: IExecuteFunctions = mock<IExecuteFunctions>();
 
+	// Mirrors the real getNodeParameter(name, index?, fallback?) contract the source relies on.
 	const getNodeParameter = vi.fn(
 		(parameterName: string, _itemIndex?: number, fallbackValue?: unknown) =>
 			parameterName in parameters ? parameters[parameterName] : fallbackValue,
@@ -81,6 +83,30 @@ describe('executeImportDefinition', () => {
 		});
 	});
 
+	it('skips SSL validation when the credential sets allowUnauthorizedCerts', async () => {
+		const { mockThis, httpRequestWithAuthentication } = createMockContext({
+			credentials: { serverUrl: 'https://m42.example.com', allowUnauthorizedCerts: true },
+		});
+
+		await executeImportDefinition.call(mockThis, 0);
+
+		const requestOptions = httpRequestWithAuthentication.mock.calls[0][1] as IDataObject;
+		expect(requestOptions.skipSslCertificateValidation).toBe(true);
+	});
+
+	it('normalizes a trailing slash on the server URL', async () => {
+		const { mockThis, httpRequestWithAuthentication } = createMockContext({
+			credentials: { serverUrl: 'https://m42.example.com/' },
+		});
+
+		await executeImportDefinition.call(mockThis, 0);
+
+		const requestOptions = httpRequestWithAuthentication.mock.calls[0][1] as IDataObject;
+		expect(requestOptions.url).toBe(
+			'https://m42.example.com/m42Services/api/importdata/executeimportdefinition',
+		);
+	});
+
 	it('builds the body with empty Parameters, the sequenceEoid as SequenceId, ActionType 3 and a v4 UUID Token', async () => {
 		const { mockThis, httpRequestWithAuthentication } = createMockContext({
 			parameters: { authentication: 'token', sequenceEoid: 'abc-123-def' },
@@ -97,31 +123,32 @@ describe('executeImportDefinition', () => {
 		expect(body.Token).toMatch(UUID_V4_RE);
 	});
 
-	it('generates the Token via the Math.random-based uuidv4 (deterministic when random is stubbed)', async () => {
-		vi.spyOn(Math, 'random').mockReturnValue(0);
+	it('generates the Token as a canonical v4 UUID via randomUUID (node:crypto)', async () => {
 		const { mockThis, httpRequestWithAuthentication } = createMockContext();
 
 		await executeImportDefinition.call(mockThis, 0);
 
 		const body = (httpRequestWithAuthentication.mock.calls[0][1] as IDataObject)
 			.body as IDataObject;
-		// With Math.random() === 0: every 'x' -> 0, every 'y' -> 8.
-		expect(body.Token).toBe('00000000-0000-4000-8000-000000000000');
+		const token = body.Token as string;
+		expect(token).toMatch(UUID_V4_RE);
+		// Version nibble is 4 and the variant nibble is one of 8/9/a/b.
+		expect(token[14]).toBe('4');
+		expect('89ab').toContain(token[19]);
 	});
 
 	it('generates a fresh Token for every invocation', async () => {
-		const randomSpy = vi.spyOn(Math, 'random');
-		randomSpy.mockReturnValue(0);
 		const { mockThis, httpRequestWithAuthentication } = createMockContext();
 
 		await executeImportDefinition.call(mockThis, 0);
-		randomSpy.mockReturnValue(0.999);
 		await executeImportDefinition.call(mockThis, 0);
 
 		const firstBody = (httpRequestWithAuthentication.mock.calls[0][1] as IDataObject)
 			.body as IDataObject;
 		const secondBody = (httpRequestWithAuthentication.mock.calls[1][1] as IDataObject)
 			.body as IDataObject;
+		expect(firstBody.Token).toMatch(UUID_V4_RE);
+		expect(secondBody.Token).toMatch(UUID_V4_RE);
 		expect(firstBody.Token).not.toBe(secondBody.Token);
 	});
 

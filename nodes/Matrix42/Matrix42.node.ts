@@ -1,4 +1,4 @@
-import {
+import type {
 	IDataObject,
 	IExecuteFunctions,
 	ILoadOptionsFunctions,
@@ -6,12 +6,11 @@ import {
 	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
-	JsonObject,
-	NodeApiError,
 } from 'n8n-workflow';
-import { NodeConnectionType } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+import { escapeAsqlString } from './GenericFunctions';
 import { matrix42ImportFields, matrix42ImportOperations } from './Matrix42ImportOperations';
-import { matrix42AsqlFields, matrix42AsqlOperations } from './Matrix42AsqlOperations';
+import { matrix42DataFields, matrix42DataOperations } from './Matrix42DataOperations';
 import { matrix42TicketFields, matrix42TicketOperations } from './Matrix42TicketOperations';
 import {
 	addFragment,
@@ -22,7 +21,7 @@ import {
 	getObject,
 	updateFragment,
 	updateObject
-} from './Matrix42AsqlFunctions';
+} from './Matrix42DataFunctions';
 import { matrix42ApiRequest } from './GenericFunctions';
 import {addJournalEntry, closeTicket, createTicket, transformTicket} from "./Matrix42TicketFunctions";
 import {executeImportDefinition} from "./Matrix42ImportFunctions";
@@ -33,16 +32,16 @@ export class Matrix42 implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Matrix42',
 		name: 'matrix42',
-		icon: { light: 'file:matrix42.svg', dark: 'file:matrix42.svg' },
+		icon: { light: 'file:matrix42.svg', dark: 'file:matrix42.dark.svg' },
 		group: ['transform'],
-		version: 1,
+		version: 2,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-		description: 'Interact with Matrix42.',
+		description: 'Interact with the Matrix42 ESMP web services API',
 		defaults: {
 			name: 'Matrix42',
 		},
-		inputs: [NodeConnectionType.Main],
-		outputs: [NodeConnectionType.Main],
+		inputs: [NodeConnectionTypes.Main],
+		outputs: [NodeConnectionTypes.Main],
 		credentials: [
 			{
 				name: 'matrix42TokenApi',
@@ -71,6 +70,7 @@ export class Matrix42 implements INodeType {
 				displayName: 'Authentication',
 				name: 'authentication',
 				type: 'options',
+				noDataExpression: true,
 				options: [
 					{
 						name: 'Webservice Token',
@@ -90,28 +90,32 @@ export class Matrix42 implements INodeType {
 				noDataExpression: true,
 				options: [
 					{
-						name: 'ASQL',
-						value: 'asql',
+						name: 'Data Fragment',
+						value: 'dataFragment',
+					},
+					{
+						name: 'Data Object',
+						value: 'dataObject',
 					},
 					{
 						name: 'Import',
 						value: 'import',
 					},
 					{
-						name: 'Ticket',
-						value: 'ticket',
-					},
-					{
 						name: 'Storage',
 						value: 'storage',
+					},
+					{
+						name: 'Ticket',
+						value: 'ticket',
 					},
 				],
 				default: 'ticket',
 			},
 
-			// Asql
-			...matrix42AsqlOperations,
-			...matrix42AsqlFields,
+			// Data Fragment & Data Object
+			...matrix42DataOperations,
+			...matrix42DataFields,
 
 			// Import
 			...matrix42ImportOperations,
@@ -137,13 +141,12 @@ export class Matrix42 implements INodeType {
 					{},
 					{
 						columns: "ID, FirstName, LastName",
+						pagesize: 1000,
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -168,9 +171,6 @@ export class Matrix42 implements INodeType {
 					return 0;
 				});
 
-				const emptyUser = { name: 'None (Check Description)', value: '00000000-0000-0000-0000-000000000000' };
-				returnData.unshift(emptyUser)
-
 				return returnData;
 			},
 			async getTicketUrgencies(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
@@ -184,10 +184,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -225,10 +223,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -267,10 +263,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				interface Category {
@@ -319,9 +313,7 @@ export class Matrix42 implements INodeType {
 				const categoryId = this.getNodeParameter('category') as string;
 
 				if (!categoryId) {
-					throw new NodeApiError(this.getNode(), {categoryId}, {
-						message:  'No category selected',
-					});
+					throw new NodeOperationError(this.getNode(), 'No category selected');
 				}
 
 				const responseData = await matrix42ApiRequest.call(
@@ -334,10 +326,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -358,7 +348,7 @@ export class Matrix42 implements INodeType {
 					'/data/fragments/SPSScCategoryClassBase',
 					{},
 					{
-						where: `ID = '${categoryId}' AND Hidden = 0`,
+						where: `ID = '${escapeAsqlString(categoryId)}' AND Hidden = 0`,
 						columns: "ID, Parent, Name, DefaultRecipientRole",
 					}
 				);
@@ -381,9 +371,6 @@ export class Matrix42 implements INodeType {
 					returnData.unshift(defaultOption);
 				}
 
-				const emptyRole = { name: 'None (Check Description)', value: '00000000-0000-0000-0000-000000000000' };
-				returnData.unshift(emptyRole)
-
 				return returnData;
 			},
 			async getTicketSlas(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
@@ -398,10 +385,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -426,9 +411,6 @@ export class Matrix42 implements INodeType {
 					return 0;
 				});
 
-				const defaultSla = { name: 'None (Check Description)', value: '00000000-0000-0000-0000-000000000000' };
-				returnData.unshift(defaultSla)
-
 				return returnData;
 			},
 			async getTicketOlas(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
@@ -443,10 +425,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -471,9 +451,6 @@ export class Matrix42 implements INodeType {
 					return 0;
 				});
 
-				const defaultOla = { name: 'None (Check Description)', value: '00000000-0000-0000-0000-000000000000' };
-				returnData.unshift(defaultOla)
-
 				return returnData;
 			},
 			async getTicketCloseReasons(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
@@ -488,10 +465,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -529,10 +504,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -570,10 +543,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -611,10 +582,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -652,10 +621,8 @@ export class Matrix42 implements INodeType {
 					}
 				);
 
-				if (responseData === undefined) {
-					throw new NodeApiError(this.getNode(), responseData as JsonObject, {
-						message:  'No data got returned',
-					});
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
 				}
 
 				const returnData: INodePropertyOptions[] = [];
@@ -680,7 +647,7 @@ export class Matrix42 implements INodeType {
 					return 0;
 				});
 
-				const defaultEntry = { name: 'None (Default)', value: '0' };
+				const defaultEntry = { name: 'None (Default)', value: 0 };
 				returnData.unshift(defaultEntry)
 
 				return returnData;
@@ -694,99 +661,49 @@ export class Matrix42 implements INodeType {
 		const resource = this.getNodeParameter('resource', 0) as string;
 		const operation = this.getNodeParameter('operation', 0) as string;
 
+		const handlers: Record<string, Record<string, (i: number) => Promise<IDataObject[]>>> = {
+			dataFragment: {
+				getAll: getFragments,
+				create: addFragment,
+				update: updateFragment,
+				delete: deleteFragment,
+			},
+			dataObject: {
+				create: addObject,
+				get: getObject,
+				update: updateObject,
+				delete: deleteObject,
+			},
+			ticket: {
+				create: createTicket,
+				close: closeTicket,
+				transform: transformTicket,
+				addJournalEntry,
+			},
+			import: {
+				execute: executeImportDefinition,
+			},
+			storage: {
+				upload: uploadFileToCI,
+			},
+		};
+
+		const handler = handlers[resource]?.[operation];
+		if (!handler) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" is not supported for resource "${resource}"`,
+			);
+		}
+
 		const returnData: INodeExecutionData[] = [];
-		let responseData: IDataObject[] = [];
 
 		for (let i = 0; i < items.length; i++) {
 			try {
-				if (resource === 'asql') {
-					if (operation === 'getFragments') {
-						// ----------------------------------
-						// asql:getFragments
-						// ----------------------------------
-						responseData = await getFragments.call(this, i);
-					} else if (operation === 'addFragment') {
-						// ----------------------------------
-						// asql:addFragment
-						// ----------------------------------
-						responseData = await addFragment.call(this, i);
-					} else if (operation === 'updateFragment') {
-						// ----------------------------------
-						// asql:updateFragment
-						// ----------------------------------
-						responseData = await updateFragment.call(this, i);
-					} else if (operation === 'deleteFragment') {
-						// ----------------------------------
-						// asql:deleteFragment
-						// ----------------------------------
-						responseData = await deleteFragment.call(this, i);
-					} else if (operation === 'addObject') {
-						// ----------------------------------
-						// asql:addObject
-						// ----------------------------------
-						responseData = await addObject.call(this, i);
-					} else if (operation === 'getObject') {
-						// ----------------------------------
-						// asql:getObject
-						// ----------------------------------
-						responseData = await getObject.call(this, i);
-					} else if (operation === 'updateObject') {
-						// ----------------------------------
-						// asql:updateObject
-						// ----------------------------------
-						responseData = await updateObject.call(this, i);
-					} else if (operation === 'deleteObject') {
-						// ----------------------------------
-						// asql:deleteObject
-						// ----------------------------------
-						responseData = await deleteObject.call(this, i);
-					}
-				}
-
-				if (resource === 'ticket') {
-					if (operation === 'createTicket') {
-						// ----------------------------------
-						// ticket:createTicket
-						// ----------------------------------
-						responseData = await createTicket.call(this, i);
-					} else if (operation === 'closeTicket') {
-						// ----------------------------------
-						// ticket:closeTicket
-						// ----------------------------------
-						responseData = await closeTicket.call(this, i);
-					} else if (operation === 'transformTicket') {
-						// ----------------------------------
-						// ticket:transformTicket
-						// ----------------------------------
-						responseData = await transformTicket.call(this, i);
-					} else if (operation === 'addJournalEntry') {
-						// ----------------------------------
-						// ticket:addJournalEntry
-						// ----------------------------------
-						responseData = await addJournalEntry.call(this, i);
-					}
-				}
-
-				if (resource === 'import') {
-					if (operation === 'executeImportDefinition') {
-						// ----------------------------------
-						// import:executeImportDefinition
-						// ----------------------------------
-						responseData = await executeImportDefinition.call(this, i);
-					}
-				}
-
-				if (resource === 'storage') {
-					if (operation === 'uploadFile') {
-						// ----------------------------------
-						// storage:uploadFile
-						// ----------------------------------
-						responseData = await uploadFileToCI.call(this, i);
-					}
-				}
+				const responseData = await handler.call(this, i);
 
 				const executionData = this.helpers.constructExecutionMetaData(
-					this.helpers.returnJsonArray(responseData as IDataObject[]),
+					this.helpers.returnJsonArray(responseData),
 					{ itemData: { item: i } },
 				);
 

@@ -1,4 +1,4 @@
-import {
+import type {
 	IAuthenticateGeneric,
 	ICredentialTestRequest,
 	ICredentialType,
@@ -12,7 +12,10 @@ export class Matrix42BasicApi implements ICredentialType {
 
 	displayName = 'Matrix42 Basic Auth API';
 
-	documentationUrl = 'https://help.matrix42.com/030_ESMP/030_INT/Business_Processes_and_API_Integrations/Web_Services%3A_Authentication_types';
+	documentationUrl =
+		'https://docs.matrix42.com/1074558_web-services/3463380_web-services-authentication-types';
+
+	icon = 'file:matrix42.svg' as const;
 
 	properties: INodeProperties[] = [
 		{
@@ -20,7 +23,8 @@ export class Matrix42BasicApi implements ICredentialType {
 			name: 'serverUrl',
 			type: 'string',
 			default: '',
-			hint: 'The URL of the Matrix42 server. (https://www.example-matrix42.com)',
+			placeholder: 'e.g. https://matrix42.example.com',
+			hint: 'The base URL of the Matrix42 server',
 			required: true,
 		},
 		{
@@ -40,6 +44,14 @@ export class Matrix42BasicApi implements ICredentialType {
 			},
 			default: '',
 		},
+		{
+			displayName: 'Ignore SSL Issues (Insecure)',
+			name: 'allowUnauthorizedCerts',
+			type: 'boolean',
+			default: false,
+			description:
+				'Whether to connect even if SSL certificate validation is not possible, e.g. when the Matrix42 server uses a self-signed certificate',
+		},
 	];
 
 	authenticate: IAuthenticateGeneric = {
@@ -54,9 +66,12 @@ export class Matrix42BasicApi implements ICredentialType {
 
 	test: ICredentialTestRequest = {
 		request: {
-			baseURL: '={{$credentials?.serverUrl}}',
+			baseURL: '={{$credentials.serverUrl.replace(/\\/+$/, "")}}',
 			url: '/m42Services/api/data/fragments/SPSGlobalConfigurationClassBase',
-			skipSslCertificateValidation: false,
+			qs: {
+				pagesize: 1,
+			},
+			skipSslCertificateValidation: '={{$credentials.allowUnauthorizedCerts}}',
 		},
 	};
 }

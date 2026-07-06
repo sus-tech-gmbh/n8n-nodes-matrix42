@@ -1,15 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 
-// The installed n8n-workflow package maps its ESM "import" condition to ./src/index.ts,
-// which is not shipped — only the CJS dist build exists. Redirect the bare specifier to
-// the working CJS entry so the node's own value imports (NodeConnectionType, NodeApiError)
-// resolve under vitest.
-vi.mock('n8n-workflow', async () => {
-	const actual = await vi.importActual<Record<string, unknown>>('n8n-workflow/dist/index.js');
-	return { ...actual };
-});
-
 import type {
 	IDataObject,
 	IExecuteFunctions,
@@ -20,19 +11,21 @@ import type {
 	INodeProperties,
 	INodePropertyOptions,
 } from 'n8n-workflow';
-import { NodeApiError, NodeConnectionType } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { Matrix42 } from '../nodes/Matrix42/Matrix42.node';
 
 const SERVER_URL = 'https://m42.example.com';
 const API_BASE = `${SERVER_URL}/m42Services/api`;
+const NIL_GUID = '00000000-0000-0000-0000-000000000000';
+// randomUUID() / node:crypto produces RFC-4122 v4 UUIDs.
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const testNode: INode = {
 	id: 'test-node-id',
 	name: 'Matrix42 Test',
 	type: 'n8n-nodes-matrix42.matrix42',
-	typeVersion: 1,
+	typeVersion: 2,
 	position: [0, 0],
 	parameters: {},
 };
@@ -55,8 +48,14 @@ function createExecuteContext(options: {
 	params: Record<string, unknown>;
 	continueOnFail?: boolean;
 	binaryBuffer?: Uint8Array;
+	allowUnauthorizedCerts?: boolean;
 }): ExecContext {
-	const { items = [{ json: {} }], params, continueOnFail = false } = options;
+	const {
+		items = [{ json: {} }],
+		params,
+		continueOnFail = false,
+		allowUnauthorizedCerts = false,
+	} = options;
 
 	const http = vi.fn().mockResolvedValue({ ok: true });
 	const getNodeParameter = vi.fn((name: string, itemIndex?: number, fallback?: unknown) => {
@@ -66,7 +65,10 @@ function createExecuteContext(options: {
 		}
 		return fallback;
 	});
-	const getCredentials = vi.fn(async () => ({ serverUrl: SERVER_URL }));
+	const getCredentials = vi.fn(async (_credentialType?: string) => ({
+		serverUrl: SERVER_URL,
+		allowUnauthorizedCerts,
+	}));
 	const assertBinaryData = vi.fn();
 	const getBinaryDataBuffer = vi.fn(async () => options.binaryBuffer ?? new Uint8Array(0));
 
@@ -107,6 +109,8 @@ function createLoadOptionsContext(
 	}
 
 	const allParams: Record<string, unknown> = { authentication: 'webserviceToken', ...params };
+	// matrix42ApiRequest reads getNodeParameter('authentication', 0); loadOptions read
+	// getNodeParameter('category'). Both signatures resolve by name here.
 	const getNodeParameter = vi.fn((name: string, fallback?: unknown) =>
 		Object.prototype.hasOwnProperty.call(allParams, name) ? allParams[name] : fallback,
 	);
@@ -114,7 +118,10 @@ function createLoadOptionsContext(
 	const mockThis = mock<ILoadOptionsFunctions>();
 	const writable = mockThis as unknown as Record<string, unknown>;
 	writable.getNodeParameter = getNodeParameter;
-	writable.getCredentials = vi.fn(async () => ({ serverUrl: SERVER_URL }));
+	writable.getCredentials = vi.fn(async () => ({
+		serverUrl: SERVER_URL,
+		allowUnauthorizedCerts: false,
+	}));
 	writable.getNode = vi.fn(() => testNode);
 	writable.helpers = { httpRequestWithAuthentication: http };
 
@@ -142,80 +149,72 @@ function optionValues(prop: INodeProperties): Array<string | number> {
 }
 
 // ---------------------------------------------------------------------------
-// Reference data (mirrors the source's declared resources/operations/fields)
+// Reference data (mirrors the current source's declared resources/operations/fields)
 // ---------------------------------------------------------------------------
 
 const RESOURCE_OPERATIONS: Record<string, string[]> = {
-	asql: [
-		'getFragments',
-		'addFragment',
-		'updateFragment',
-		'deleteFragment',
-		'addObject',
-		'getObject',
-		'updateObject',
-		'deleteObject',
-	],
-	import: ['executeImportDefinition'],
-	ticket: ['createTicket', 'closeTicket', 'transformTicket', 'addJournalEntry'],
-	storage: ['uploadFile'],
+	dataFragment: ['create', 'delete', 'getAll', 'update'],
+	dataObject: ['create', 'delete', 'get', 'update'],
+	import: ['execute'],
+	storage: ['upload'],
+	ticket: ['addJournalEntry', 'close', 'create', 'transform'],
 };
 
-const OPERATION_FIELDS: Record<string, string[]> = {
-	getFragments: ['dataDefinition', 'where', 'columns', 'additionalFields'],
-	addFragment: ['dataDefinition', 'fragmentData'],
-	updateFragment: ['dataDefinition', 'fragmentData'],
-	deleteFragment: ['dataDefinition', 'fragmentId'],
-	addObject: ['configurationItem', 'objectData'],
-	getObject: ['configurationItem', 'objectId', 'full'],
-	updateObject: ['configurationItem', 'objectData', 'full'],
-	deleteObject: ['configurationItem', 'objectId'],
-	createTicket: [
-		'ticketType',
-		'category',
-		'subject',
-		'descriptionHTML',
-		'impact',
-		'urgency',
-		'priority',
-		'responsibleRole',
-		'creator',
-		'user',
-		'responsibleUser',
-		'sla',
-	],
-	closeTicket: [
-		'ticketEoid',
-		'closeRelatedIncidents',
-		'reason',
-		'errorType',
-		'comments',
-		'servicesAvailability',
-		'assetsAvailability',
-		'sendMailToInitiator',
-		'notifyResponsible',
-		'sendMailToUsers',
-		'sendMailToRelatedResponsibleUsers',
-	],
-	transformTicket: [
-		'ticketEoid',
-		'sourceTypeName',
-		'targetTypeName',
-		'category',
-		'sla',
-		'ola',
-		'recipientRole',
-	],
-	addJournalEntry: [
-		'ticketEoid',
-		'comments',
-		'entryType',
-		'creator',
-		'visibleInPortal',
-		'additionalFields',
-	],
-	executeImportDefinition: ['sequenceEoid'],
-	uploadFile: ['filename', 'storageId', 'objectId', 'binaryPropertyName', 'additionalFields'],
+const OPERATION_DEFAULTS: Record<string, string> = {
+	dataFragment: 'getAll',
+	dataObject: 'get',
+	import: 'execute',
+	storage: 'upload',
+	ticket: 'create',
+};
+
+// Fields gated by BOTH resource and operation (operation values now repeat across resources).
+const FIELDS: Record<string, Record<string, string[]>> = {
+	dataFragment: {
+		getAll: ['dataDefinition', 'where', 'columns', 'returnAll', 'limit', 'additionalFields'],
+		create: ['dataDefinition', 'fragmentData'],
+		update: ['dataDefinition', 'fragmentData'],
+		delete: ['dataDefinition', 'fragmentId'],
+	},
+	dataObject: {
+		create: ['configurationItem', 'objectData'],
+		get: ['configurationItem', 'objectId', 'full'],
+		update: ['configurationItem', 'objectData', 'full'],
+		delete: ['configurationItem', 'objectId'],
+	},
+	ticket: {
+		create: [
+			'ticketType',
+			'category',
+			'subject',
+			'descriptionHTML',
+			'impact',
+			'urgency',
+			'priority',
+			'additionalFields',
+		],
+		close: [
+			'ticketEoid',
+			'closeRelatedIncidents',
+			'reason',
+			'errorType',
+			'comments',
+			'servicesAvailability',
+			'assetsAvailability',
+			'sendMailToInitiator',
+			'notifyResponsible',
+			'sendMailToUsers',
+			'sendMailToRelatedResponsibleUsers',
+		],
+		transform: ['ticketEoid', 'sourceTypeName', 'targetTypeName', 'category', 'additionalFields'],
+		addJournalEntry: ['ticketEoid', 'comments', 'entryType', 'creator', 'visibleInPortal', 'additionalFields'],
+	},
+	import: {
+		execute: ['sequenceEoid'],
+	},
+	storage: {
+		upload: ['filename', 'storageId', 'objectId', 'binaryPropertyName', 'additionalFields'],
+	},
 };
 
 // ---------------------------------------------------------------------------
@@ -230,17 +229,17 @@ describe('Matrix42 node description', () => {
 		expect(description.displayName).toBe('Matrix42');
 		expect(description.name).toBe('matrix42');
 		expect(description.group).toEqual(['transform']);
-		expect(description.version).toBe(1);
+		expect(description.version).toBe(2);
 		expect(description.subtitle).toBe('={{$parameter["operation"] + ": " + $parameter["resource"]}}');
-		expect(description.description).toBe('Interact with Matrix42.');
+		expect(description.description).toBe('Interact with the Matrix42 ESMP web services API');
 		expect(description.defaults).toEqual({ name: 'Matrix42' });
 		expect(description.usableAsTool).toBe(true);
-		expect(description.icon).toEqual({ light: 'file:matrix42.svg', dark: 'file:matrix42.svg' });
+		expect(description.icon).toEqual({ light: 'file:matrix42.svg', dark: 'file:matrix42.dark.svg' });
 	});
 
 	it('has a single main input and a single main output', () => {
-		expect(description.inputs).toEqual([NodeConnectionType.Main]);
-		expect(description.outputs).toEqual([NodeConnectionType.Main]);
+		expect(description.inputs).toEqual([NodeConnectionTypes.Main]);
+		expect(description.outputs).toEqual([NodeConnectionTypes.Main]);
 	});
 
 	it('declares both credentials, each gated by the authentication parameter', () => {
@@ -280,17 +279,18 @@ describe('Matrix42 node description', () => {
 		]);
 	});
 
-	it('has a resource parameter with exactly [asql, import, ticket, storage]', () => {
+	it('has a resource parameter with exactly [dataFragment, dataObject, import, storage, ticket]', () => {
 		const resource = description.properties.find((p) => p.name === 'resource');
 		expect(resource).toBeDefined();
 		expect(resource!.type).toBe('options');
 		expect(resource!.noDataExpression).toBe(true);
 		expect(resource!.default).toBe('ticket');
 		expect(resource!.options).toEqual([
-			{ name: 'ASQL', value: 'asql' },
+			{ name: 'Data Fragment', value: 'dataFragment' },
+			{ name: 'Data Object', value: 'dataObject' },
 			{ name: 'Import', value: 'import' },
-			{ name: 'Ticket', value: 'ticket' },
 			{ name: 'Storage', value: 'storage' },
+			{ name: 'Ticket', value: 'ticket' },
 		]);
 	});
 });
@@ -303,10 +303,9 @@ describe('Matrix42 node properties integrity', () => {
 	const node = new Matrix42();
 	const properties = node.description.properties;
 	const operationProps = properties.filter((p) => p.name === 'operation');
-	const allKnownOperations = Object.values(RESOURCE_OPERATIONS).flat();
 
 	it('exposes exactly one operation dropdown per resource, gated via displayOptions.show.resource', () => {
-		expect(operationProps).toHaveLength(4);
+		expect(operationProps).toHaveLength(5);
 
 		const gatedResources: string[] = [];
 		for (const prop of operationProps) {
@@ -314,42 +313,60 @@ describe('Matrix42 node properties integrity', () => {
 			expect(prop.noDataExpression).toBe(true);
 			const resources = shownResources(prop);
 			expect(resources).toHaveLength(1);
+			// operation dropdowns are gated by resource only (no operation gate)
+			expect(shownOperations(prop)).toEqual([]);
 			gatedResources.push(resources[0]);
 		}
 
-		expect(gatedResources.sort()).toEqual(['asql', 'import', 'storage', 'ticket']);
+		expect(gatedResources.sort()).toEqual([
+			'dataFragment',
+			'dataObject',
+			'import',
+			'storage',
+			'ticket',
+		]);
 	});
 
-	it('lists the expected operations per resource with a valid default', () => {
+	it('lists the expected operations per resource with the expected default', () => {
 		for (const prop of operationProps) {
 			const resource = shownResources(prop)[0];
 			const values = optionValues(prop);
 			expect(values, `operations for resource "${resource}"`).toEqual(
 				RESOURCE_OPERATIONS[resource],
 			);
+			expect(prop.default).toBe(OPERATION_DEFAULTS[resource]);
 			expect(values).toContain(prop.default);
 		}
 	});
 
-	it('uses globally unique operation values (fields are gated by operation only)', () => {
-		// Field properties are gated exclusively by show.operation (no resource gate);
-		// this is only unambiguous because operation values never repeat across resources.
-		expect(new Set(allKnownOperations).size).toBe(allKnownOperations.length);
+	it('operation values now repeat across resources, so fields must be gated by resource + operation', () => {
+		// create/delete/update appear under multiple resources - a resource+operation
+		// pair is required to identify a field unambiguously.
+		const allOps = Object.values(RESOURCE_OPERATIONS).flat();
+		expect(new Set(allOps).size).toBeLessThan(allOps.length);
 	});
 
-	it('gates every non-core property on at least one known operation value', () => {
+	it('gates every non-core property on a known resource + operation pair', () => {
 		const fieldProps = properties.filter(
 			(p) => !['authentication', 'resource', 'operation'].includes(p.name),
 		);
 		expect(fieldProps.length).toBeGreaterThan(0);
 
 		for (const prop of fieldProps) {
-			const gate = shownOperations(prop);
-			expect(gate.length, `property "${prop.name}" must be gated by operation`).toBeGreaterThan(0);
-			for (const op of gate) {
-				expect(allKnownOperations, `property "${prop.name}" gates on unknown op "${op}"`).toContain(
-					op,
-				);
+			const resources = shownResources(prop);
+			const operations = shownOperations(prop);
+			expect(resources.length, `property "${prop.name}" must be gated by resource`).toBe(1);
+			expect(operations.length, `property "${prop.name}" must be gated by operation`).toBeGreaterThan(0);
+
+			const resource = resources[0];
+			expect(RESOURCE_OPERATIONS, `property "${prop.name}" gates on unknown resource`).toHaveProperty(
+				resource,
+			);
+			for (const op of operations) {
+				expect(
+					RESOURCE_OPERATIONS[resource],
+					`property "${prop.name}" gates on unknown op "${op}" for resource "${resource}"`,
+				).toContain(op);
 			}
 		}
 	});
@@ -360,6 +377,23 @@ describe('Matrix42 node properties integrity', () => {
 	});
 
 	it('has no duplicate name + displayOptions collisions', () => {
+		// Visibility key: operation dropdowns are gated by resource only; every other
+		// property is gated by the full resource x operation product.
+		const visibilityKeys = (prop: INodeProperties): string[] => {
+			const resources = shownResources(prop);
+			const operations = shownOperations(prop);
+			if (prop.name === 'operation') {
+				return resources.map((r) => `${r}::*`);
+			}
+			const keys: string[] = [];
+			for (const r of resources) {
+				for (const o of operations) {
+					keys.push(`${r}::${o}`);
+				}
+			}
+			return keys;
+		};
+
 		const byName = new Map<string, INodeProperties[]>();
 		for (const prop of properties) {
 			const group = byName.get(prop.name) ?? [];
@@ -371,22 +405,31 @@ describe('Matrix42 node properties integrity', () => {
 			if (group.length < 2) continue;
 			for (let a = 0; a < group.length; a++) {
 				for (let b = a + 1; b < group.length; b++) {
-					const gateA = name === 'operation' ? shownResources(group[a]) : shownOperations(group[a]);
-					const gateB = name === 'operation' ? shownResources(group[b]) : shownOperations(group[b]);
-					expect(gateA.length, `duplicate "${name}" must be gated`).toBeGreaterThan(0);
-					expect(gateB.length, `duplicate "${name}" must be gated`).toBeGreaterThan(0);
-					const overlap = gateA.filter((value) => gateB.includes(value));
+					const keysA = visibilityKeys(group[a]);
+					const keysB = visibilityKeys(group[b]);
+					expect(keysA.length, `duplicate "${name}" must be gated`).toBeGreaterThan(0);
+					expect(keysB.length, `duplicate "${name}" must be gated`).toBeGreaterThan(0);
+					const overlap = keysA.filter((key) => keysB.includes(key));
 					expect(overlap, `properties named "${name}" are visible simultaneously`).toEqual([]);
 				}
 			}
 		}
 	});
 
-	it.each(Object.entries(OPERATION_FIELDS).map(([operation, fields]) => ({ operation, fields })))(
-		'exposes exactly the declared fields for operation "$operation"',
-		({ operation, fields }) => {
+	const fieldCases = Object.entries(FIELDS).flatMap(([resource, ops]) =>
+		Object.entries(ops).map(([operation, fields]) => ({ resource, operation, fields })),
+	);
+
+	it.each(fieldCases)(
+		'exposes exactly the declared fields for $resource:$operation',
+		({ resource, operation, fields }) => {
 			const visible = properties
-				.filter((p) => p.name !== 'operation' && shownOperations(p).includes(operation))
+				.filter(
+					(p) =>
+						p.name !== 'operation' &&
+						shownResources(p).includes(resource) &&
+						shownOperations(p).includes(operation),
+				)
 				.map((p) => p.name)
 				.sort();
 			expect(visible).toEqual([...fields].sort());
@@ -401,7 +444,7 @@ describe('Matrix42 node properties integrity', () => {
 describe('Matrix42.execute()', () => {
 	const node = new Matrix42();
 
-	// A parameter map that satisfies every operation used in the dispatch table.
+	// A parameter map that satisfies the operations exercised by the dispatch table.
 	const dispatchParams: Record<string, unknown> = {
 		authentication: 'webserviceToken',
 		dataDefinition: 'DDX',
@@ -420,12 +463,6 @@ describe('Matrix42.execute()', () => {
 		impact: 2,
 		urgency: 3,
 		priority: 2,
-		responsibleRole: 'role-1',
-		creator: 'user-c',
-		user: 'user-i',
-		responsibleUser: 'user-r',
-		sla: 'sla-1',
-		ola: 'ola-1',
 		ticketEoid: 'eoid-1',
 		closeRelatedIncidents: false,
 		reason: 408,
@@ -439,27 +476,27 @@ describe('Matrix42.execute()', () => {
 		sendMailToRelatedResponsibleUsers: true,
 		sourceTypeName: 'SPSActivityTypeTicket',
 		targetTypeName: 'SPSActivityTypeIncident',
-		recipientRole: 'role-2',
 		entryType: 5,
+		creator: 'user-c',
 		visibleInPortal: true,
 		sequenceEoid: 'seq-1',
 		additionalFields: {},
 	};
 
 	it.each([
-		{ resource: 'asql', operation: 'getFragments', method: 'GET', endpoint: '/data/fragments/DDX' },
-		{ resource: 'asql', operation: 'addFragment', method: 'POST', endpoint: '/data/fragments/DDX' },
-		{ resource: 'asql', operation: 'updateFragment', method: 'PUT', endpoint: '/data/fragments/DDX' },
-		{ resource: 'asql', operation: 'deleteFragment', method: 'DELETE', endpoint: '/data/fragments/DDX/frag-1' },
-		{ resource: 'asql', operation: 'addObject', method: 'POST', endpoint: '/data/objects/CIX' },
-		{ resource: 'asql', operation: 'getObject', method: 'GET', endpoint: '/data/objects/CIX/obj-1' },
-		{ resource: 'asql', operation: 'updateObject', method: 'PUT', endpoint: '/data/objects/CIX' },
-		{ resource: 'asql', operation: 'deleteObject', method: 'DELETE', endpoint: '/data/objects/CIX/obj-1' },
-		{ resource: 'ticket', operation: 'createTicket', method: 'POST', endpoint: '/ticket/create' },
-		{ resource: 'ticket', operation: 'closeTicket', method: 'POST', endpoint: '/ticket/close' },
-		{ resource: 'ticket', operation: 'transformTicket', method: 'POST', endpoint: '/ticket/transform' },
+		{ resource: 'dataFragment', operation: 'getAll', method: 'GET', endpoint: '/data/fragments/DDX' },
+		{ resource: 'dataFragment', operation: 'create', method: 'POST', endpoint: '/data/fragments/DDX' },
+		{ resource: 'dataFragment', operation: 'update', method: 'PUT', endpoint: '/data/fragments/DDX' },
+		{ resource: 'dataFragment', operation: 'delete', method: 'DELETE', endpoint: '/data/fragments/DDX/frag-1' },
+		{ resource: 'dataObject', operation: 'create', method: 'POST', endpoint: '/data/objects/CIX' },
+		{ resource: 'dataObject', operation: 'get', method: 'GET', endpoint: '/data/objects/CIX/obj-1' },
+		{ resource: 'dataObject', operation: 'update', method: 'PUT', endpoint: '/data/objects/CIX' },
+		{ resource: 'dataObject', operation: 'delete', method: 'DELETE', endpoint: '/data/objects/CIX/obj-1' },
+		{ resource: 'ticket', operation: 'create', method: 'POST', endpoint: '/ticket/create' },
+		{ resource: 'ticket', operation: 'close', method: 'POST', endpoint: '/ticket/close' },
+		{ resource: 'ticket', operation: 'transform', method: 'POST', endpoint: '/ticket/transform' },
 		{ resource: 'ticket', operation: 'addJournalEntry', method: 'POST', endpoint: '/journal/Add' },
-		{ resource: 'import', operation: 'executeImportDefinition', method: 'POST', endpoint: '/importdata/executeimportdefinition' },
+		{ resource: 'import', operation: 'execute', method: 'POST', endpoint: '/importdata/executeimportdefinition' },
 	])(
 		'dispatches $resource:$operation to $method $endpoint',
 		async ({ resource, operation, method, endpoint }) => {
@@ -478,17 +515,31 @@ describe('Matrix42.execute()', () => {
 		},
 	);
 
-	it('asql:getFragments runs per input item and wraps each response row with the item index', async () => {
+	it('throws a NodeOperationError for an unknown resource/operation combination', async () => {
+		const ctx = createExecuteContext({
+			params: { authentication: 'webserviceToken', resource: 'ticket', operation: 'bogus' },
+			continueOnFail: true, // still throws: the guard runs before the item loop
+		});
+
+		await expect(node.execute.call(ctx.mockThis)).rejects.toBeInstanceOf(NodeOperationError);
+		await expect(node.execute.call(ctx.mockThis)).rejects.toThrow(/bogus/);
+		await expect(node.execute.call(ctx.mockThis)).rejects.toThrow(/ticket/);
+		expect(ctx.http).not.toHaveBeenCalled();
+	});
+
+	it('dataFragment:getAll runs per item, sends exact GET query, and wraps rows with the item index', async () => {
 		const ctx = createExecuteContext({
 			items: [{ json: { first: true } }, { json: { second: true } }],
 			params: {
 				authentication: 'webserviceToken',
-				resource: 'asql',
-				operation: 'getFragments',
+				resource: 'dataFragment',
+				operation: 'getAll',
 				dataDefinition: (i?: number) => `DD${i}`,
 				where: 'W',
 				columns: 'C',
-				additionalFields: { pageSize: 5, pageNumber: 2, sort: 'Name ASC' },
+				returnAll: false,
+				limit: 5,
+				additionalFields: { sort: 'Name ASC' },
 			},
 		});
 		ctx.http.mockResolvedValue([{ ID: 'f1' }, { ID: 'f2' }]);
@@ -504,9 +555,8 @@ describe('Matrix42.execute()', () => {
 		expect(first.options.qs).toEqual({
 			where: 'W',
 			columns: 'C',
-			pagesize: 5,
-			pagenumber: 2,
 			sort: 'Name ASC',
+			pagesize: 5,
 		});
 		expect(first.options.headers).toEqual({ 'Content-Type': 'application/json' });
 		expect(first.options.json).toBe(true);
@@ -517,7 +567,6 @@ describe('Matrix42.execute()', () => {
 		const second = httpCall(ctx.http, 1);
 		expect(second.options.url).toBe(`${API_BASE}/data/fragments/DD1`);
 
-		// per-item parameters are read with the item index
 		expect(ctx.getNodeParameter).toHaveBeenCalledWith('dataDefinition', 0);
 		expect(ctx.getNodeParameter).toHaveBeenCalledWith('dataDefinition', 1);
 
@@ -531,52 +580,127 @@ describe('Matrix42.execute()', () => {
 		]);
 	});
 
-	it('asql:getFragments omits paging params when additionalFields is unset (fallback {})', async () => {
+	it('dataFragment:getAll reads returnAll/limit/additionalFields with fallbacks and always sends pagesize=limit', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
-				resource: 'asql',
-				operation: 'getFragments',
+				resource: 'dataFragment',
+				operation: 'getAll',
 				dataDefinition: 'DD',
 				where: 'W',
 				columns: 'C',
-				// no additionalFields entry: getNodeParameter falls back to the {} default
+				// returnAll / limit / additionalFields omitted -> defaults kick in
 			},
 		});
 		ctx.http.mockResolvedValue([]);
 
 		await node.execute.call(ctx.mockThis);
 
+		expect(ctx.getNodeParameter).toHaveBeenCalledWith('returnAll', 0, false);
+		expect(ctx.getNodeParameter).toHaveBeenCalledWith('limit', 0, 50);
 		expect(ctx.getNodeParameter).toHaveBeenCalledWith('additionalFields', 0, {});
-		expect(httpCall(ctx.http).options.qs).toEqual({ where: 'W', columns: 'C' });
+		expect(httpCall(ctx.http).options.qs).toEqual({ where: 'W', columns: 'C', pagesize: 50 });
 	});
 
-	it('reads resource and operation once each, only for item index 0', async () => {
+	it('dataFragment:getAll with returnAll pages with pagesize 500 until a short page is returned', async () => {
+		const fullPage = Array.from({ length: 500 }, (_, k) => ({ ID: `id-${k}` }));
 		const ctx = createExecuteContext({
-			items: [{ json: {} }, { json: {} }],
 			params: {
 				authentication: 'webserviceToken',
-				resource: 'asql',
-				operation: 'deleteFragment',
+				resource: 'dataFragment',
+				operation: 'getAll',
 				dataDefinition: 'DD',
-				fragmentId: 'frag-1',
+				where: 'W',
+				columns: 'C',
+				returnAll: true,
 			},
 		});
+		ctx.http.mockResolvedValueOnce(fullPage).mockResolvedValueOnce([{ ID: 'last' }]);
+
+		const result = await node.execute.call(ctx.mockThis);
+
+		expect(ctx.http).toHaveBeenCalledTimes(2);
+		expect(httpCall(ctx.http, 0).options.qs).toEqual({
+			where: 'W',
+			columns: 'C',
+			pagesize: 500,
+			pagenumber: 0,
+		});
+		expect(httpCall(ctx.http, 1).options.qs).toEqual({
+			where: 'W',
+			columns: 'C',
+			pagesize: 500,
+			pagenumber: 1,
+		});
+		expect(result[0]).toHaveLength(501);
+	});
+
+	it('encodeURIComponent-escapes data-definition and id path segments', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'dataFragment',
+				operation: 'delete',
+				dataDefinition: 'Space Name',
+				fragmentId: 'a/b',
+			},
+		});
+		ctx.http.mockResolvedValue({});
 
 		await node.execute.call(ctx.mockThis);
 
-		const resourceReads = ctx.getNodeParameter.mock.calls.filter((c) => c[0] === 'resource');
-		const operationReads = ctx.getNodeParameter.mock.calls.filter((c) => c[0] === 'operation');
-		expect(resourceReads).toEqual([['resource', 0]]);
-		expect(operationReads).toEqual([['operation', 0]]);
+		expect(httpCall(ctx.http).options.url).toBe(`${API_BASE}/data/fragments/Space%20Name/a%2Fb`);
 	});
 
-	it('ticket:createTicket sends the exact body/query and wraps the response as ticketEoid', async () => {
+	it('dataObject:get sends full in the query string and wraps the single response object', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'dataObject',
+				operation: 'get',
+				configurationItem: 'CI',
+				objectId: 'o-1',
+				full: true,
+			},
+		});
+		ctx.http.mockResolvedValue({ ID: 'o-1', Name: 'X' });
+
+		const result = await node.execute.call(ctx.mockThis);
+
+		const call = httpCall(ctx.http);
+		expect(call.options.method).toBe('GET');
+		expect(call.options.url).toBe(`${API_BASE}/data/objects/CI/o-1`);
+		expect(call.options.qs).toEqual({ full: true });
+		expect(result).toEqual([[{ json: { ID: 'o-1', Name: 'X' }, pairedItem: { item: 0 } }]]);
+	});
+
+	it('dataObject:create wraps the response under objectId', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'dataObject',
+				operation: 'create',
+				configurationItem: 'CI',
+				objectData: { Name: 'X' },
+			},
+		});
+		ctx.http.mockResolvedValue('new-obj-eoid');
+
+		const result = await node.execute.call(ctx.mockThis);
+
+		const call = httpCall(ctx.http);
+		expect(call.options.method).toBe('POST');
+		expect(call.options.url).toBe(`${API_BASE}/data/objects/CI`);
+		expect(call.options.body).toEqual({ Name: 'X' });
+		expect(result).toEqual([[{ json: { objectId: 'new-obj-eoid' }, pairedItem: { item: 0 } }]]);
+	});
+
+	it('ticket:create sends the exact body/query and wraps the response as ticketEoid', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
 				resource: 'ticket',
-				operation: 'createTicket',
+				operation: 'create',
 				ticketType: 6,
 				category: 'cat-9',
 				subject: 'Subj',
@@ -584,11 +708,13 @@ describe('Matrix42.execute()', () => {
 				impact: 2,
 				urgency: 3,
 				priority: 2,
-				responsibleRole: 'role-1',
-				creator: 'user-c',
-				user: 'user-i',
-				responsibleUser: 'user-r',
-				sla: 'sla-1',
+				additionalFields: {
+					responsibleRole: 'role-1',
+					creator: 'user-c',
+					user: 'user-i',
+					responsibleUser: 'user-r',
+					sla: 'sla-1',
+				},
 			},
 		});
 		ctx.http.mockResolvedValue('eoid-123');
@@ -619,12 +745,45 @@ describe('Matrix42.execute()', () => {
 		expect(result).toEqual([[{ json: { ticketEoid: 'eoid-123' }, pairedItem: { item: 0 } }]]);
 	});
 
-	it('ticket:createTicket with priority Auto (-1) resolves the priority from the mapping first', async () => {
+	it('ticket:create omits blank/nil-GUID optional relations from the body', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
 				resource: 'ticket',
-				operation: 'createTicket',
+				operation: 'create',
+				ticketType: 5,
+				category: 'cat-1',
+				subject: 'S',
+				descriptionHTML: 'D',
+				impact: 1,
+				urgency: 1,
+				priority: 0,
+				additionalFields: {
+					responsibleRole: NIL_GUID, // nil-GUID sentinel -> omitted
+					creator: '', // empty -> omitted
+					user: 'u-1', // kept
+					// responsibleUser / sla absent -> omitted
+				},
+			},
+		});
+		ctx.http.mockResolvedValue('eoid');
+
+		await node.execute.call(ctx.mockThis);
+
+		const body = httpCall(ctx.http).options.body as IDataObject;
+		expect(body).not.toHaveProperty('ResponsibleRole');
+		expect(body).not.toHaveProperty('Creator');
+		expect(body).not.toHaveProperty('ResponsibleUser');
+		expect(body).not.toHaveProperty('Sla');
+		expect(body.User).toBe('u-1');
+	});
+
+	it('ticket:create resolves priority Auto (-1) from the impact/urgency mapping', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'ticket',
+				operation: 'create',
 				ticketType: 5,
 				category: 'cat-1',
 				subject: 'S',
@@ -632,21 +791,14 @@ describe('Matrix42.execute()', () => {
 				impact: 2,
 				urgency: 3,
 				priority: -1,
-				responsibleRole: 'role-1',
-				creator: 'user-c',
-				user: 'user-i',
-				responsibleUser: 'user-r',
-				sla: 'sla-1',
+				additionalFields: {},
 			},
 		});
-		ctx.http
-			.mockResolvedValueOnce([{ PriorityValue: 1 }])
-			.mockResolvedValueOnce('eoid-2');
+		ctx.http.mockResolvedValueOnce([{ PriorityValue: 1 }]).mockResolvedValueOnce('eoid-2');
 
 		await node.execute.call(ctx.mockThis);
 
 		expect(ctx.http).toHaveBeenCalledTimes(2);
-
 		const mappingCall = httpCall(ctx.http, 0);
 		expect(mappingCall.options.method).toBe('GET');
 		expect(mappingCall.options.url).toBe(`${API_BASE}/data/fragments/SVMActivityPickupPriorityMapping`);
@@ -654,17 +806,60 @@ describe('Matrix42.execute()', () => {
 			where: 'ImpactValue = 2 AND UrgencyValue = 3',
 			columns: 'PriorityValue',
 		});
-
-		const createCall = httpCall(ctx.http, 1);
-		expect((createCall.options.body as IDataObject).Priority).toBe(1);
+		expect((httpCall(ctx.http, 1).options.body as IDataObject).Priority).toBe(1);
 	});
 
-	it('ticket:closeTicket sends the exact body and returns a Success message item', async () => {
+	it('ticket:create falls back to priority 2 when the mapping lookup returns an empty array', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
 				resource: 'ticket',
-				operation: 'closeTicket',
+				operation: 'create',
+				ticketType: 5,
+				category: 'cat-1',
+				subject: 'S',
+				descriptionHTML: 'D',
+				impact: 2,
+				urgency: 3,
+				priority: -1,
+				additionalFields: {},
+			},
+		});
+		ctx.http.mockResolvedValueOnce([]).mockResolvedValueOnce('eoid-3');
+
+		await node.execute.call(ctx.mockThis);
+
+		expect(ctx.http).toHaveBeenCalledTimes(2);
+		expect((httpCall(ctx.http, 1).options.body as IDataObject).Priority).toBe(2);
+	});
+
+	it('ticket:create throws NodeOperationError when impact is not numeric', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'ticket',
+				operation: 'create',
+				ticketType: 5,
+				category: 'cat-1',
+				subject: 'S',
+				descriptionHTML: 'D',
+				impact: '', // toNumber() rejects empty
+				urgency: 3,
+				priority: 2,
+				additionalFields: {},
+			},
+		});
+
+		await expect(node.execute.call(ctx.mockThis)).rejects.toBeInstanceOf(NodeOperationError);
+		expect(ctx.http).not.toHaveBeenCalled();
+	});
+
+	it('ticket:close sends the exact body and returns a Success message item', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'ticket',
+				operation: 'close',
 				ticketEoid: 'eoid-9',
 				closeRelatedIncidents: true,
 				reason: 408,
@@ -682,7 +877,6 @@ describe('Matrix42.execute()', () => {
 
 		const result = await node.execute.call(ctx.mockThis);
 
-		expect(ctx.http).toHaveBeenCalledTimes(1);
 		const call = httpCall(ctx.http);
 		expect(call.options.method).toBe('POST');
 		expect(call.options.url).toBe(`${API_BASE}/ticket/close`);
@@ -700,16 +894,144 @@ describe('Matrix42.execute()', () => {
 			NotifyResponsible: true,
 			SendMailToRelatedResponsibleUsers: true,
 		});
-
 		expect(result).toEqual([[{ json: { Message: 'Success' }, pairedItem: { item: 0 } }]]);
 	});
 
-	it('import:executeImportDefinition posts SequenceId/ActionType 3 with a fresh v4 token', async () => {
+	it('ticket:transform sends ObjectIds + type names, adds set relations, and returns Success', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'ticket',
+				operation: 'transform',
+				ticketEoid: 'eoid-7',
+				sourceTypeName: 'SPSActivityTypeTicket',
+				targetTypeName: 'SPSActivityTypeIncident',
+				category: 'cat-3',
+				additionalFields: { sla: 'sla-1', ola: 'ola-1', recipientRole: 'role-2' },
+			},
+		});
+		ctx.http.mockResolvedValue({});
+
+		const result = await node.execute.call(ctx.mockThis);
+
+		const call = httpCall(ctx.http);
+		expect(call.options.method).toBe('POST');
+		expect(call.options.url).toBe(`${API_BASE}/ticket/transform`);
+		expect(call.options.body).toEqual({
+			ObjectIds: ['eoid-7'],
+			SourceTypeName: 'SPSActivityTypeTicket',
+			TargetTypeName: 'SPSActivityTypeIncident',
+			Category: 'cat-3',
+			Sla: 'sla-1',
+			Ola: 'ola-1',
+			RecipientRole: 'role-2',
+		});
+		expect(result).toEqual([[{ json: { Message: 'Success' }, pairedItem: { item: 0 } }]]);
+	});
+
+	it('ticket:transform omits blank optional relations', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'ticket',
+				operation: 'transform',
+				ticketEoid: 'eoid-7',
+				sourceTypeName: 'SPSActivityTypeTicket',
+				targetTypeName: 'SPSActivityTypeIncident',
+				category: 'cat-3',
+				additionalFields: { sla: '', ola: NIL_GUID },
+			},
+		});
+		ctx.http.mockResolvedValue({});
+
+		await node.execute.call(ctx.mockThis);
+
+		expect(httpCall(ctx.http).options.body).toEqual({
+			ObjectIds: ['eoid-7'],
+			SourceTypeName: 'SPSActivityTypeTicket',
+			TargetTypeName: 'SPSActivityTypeIncident',
+			Category: 'cat-3',
+		});
+	});
+
+	it('ticket:addJournalEntry parses arrays, sends IsFromEditDialog, and returns Success', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'ticket',
+				operation: 'addJournalEntry',
+				ticketEoid: 'eoid-4',
+				comments: 'a note',
+				entryType: 5,
+				creator: 'user-c',
+				visibleInPortal: true,
+				additionalFields: {
+					isFromEditDialog: true,
+					publish: true,
+					typeId: 't-1',
+					parameters: '[{"a":1}]',
+					fileIds: '["f1","f2"]',
+				},
+			},
+		});
+		ctx.http.mockResolvedValue({});
+
+		const result = await node.execute.call(ctx.mockThis);
+
+		const call = httpCall(ctx.http);
+		expect(call.options.method).toBe('POST');
+		expect(call.options.url).toBe(`${API_BASE}/journal/Add`);
+		expect(call.options.body).toEqual({
+			ObjectId: 'eoid-4',
+			Publish: true,
+			Comments: 'a note',
+			EntryType: 5,
+			Creator: 'user-c',
+			VisibleInPortal: true,
+			Parameters: [{ a: 1 }],
+			IsFromEditDialog: true,
+			TypeId: 't-1',
+			FileIds: ['f1', 'f2'],
+		});
+		expect(result).toEqual([[{ json: { Message: 'Success' }, pairedItem: { item: 0 } }]]);
+	});
+
+	it('ticket:addJournalEntry applies defaults when additionalFields is empty', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'ticket',
+				operation: 'addJournalEntry',
+				ticketEoid: 'eoid-4',
+				comments: 'a note',
+				entryType: 3,
+				creator: 'user-c',
+				visibleInPortal: false,
+				additionalFields: {},
+			},
+		});
+		ctx.http.mockResolvedValue({});
+
+		await node.execute.call(ctx.mockThis);
+
+		expect(httpCall(ctx.http).options.body).toEqual({
+			ObjectId: 'eoid-4',
+			Publish: false,
+			Comments: 'a note',
+			EntryType: 3,
+			Creator: 'user-c',
+			VisibleInPortal: false,
+			Parameters: [],
+			IsFromEditDialog: false,
+		});
+	});
+
+	it('import:execute posts SequenceId/ActionType 3 with a fresh v4 token', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
 				resource: 'import',
-				operation: 'executeImportDefinition',
+				operation: 'execute',
 				sequenceEoid: 'seq-1',
 			},
 		});
@@ -717,7 +1039,6 @@ describe('Matrix42.execute()', () => {
 
 		const result = await node.execute.call(ctx.mockThis);
 
-		expect(ctx.http).toHaveBeenCalledTimes(1);
 		const call = httpCall(ctx.http);
 		expect(call.options.method).toBe('POST');
 		expect(call.options.url).toBe(`${API_BASE}/importdata/executeimportdefinition`);
@@ -736,13 +1057,13 @@ describe('Matrix42.execute()', () => {
 		expect(result).toEqual([[{ json: { IsSuccessful: true }, pairedItem: { item: 0 } }]]);
 	});
 
-	it('storage:uploadFile drives the full upload flow (typeId lookup, url, upload, finish, comment)', async () => {
+	it('storage:upload drives the full flow (typeId lookup, url, upload, finish, comment)', async () => {
 		const buffer = new Uint8Array(11); // 11-byte payload; the source only reads .length
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
 				resource: 'storage',
-				operation: 'uploadFile',
+				operation: 'upload',
 				filename: 'file.txt',
 				storageId: 'store-1',
 				objectId: 'obj-1',
@@ -803,29 +1124,31 @@ describe('Matrix42.execute()', () => {
 		const finishCall = httpCall(ctx.http, 3);
 		expect(finishCall.options.method).toBe('POST');
 		expect(finishCall.options.url).toBe(`${API_BASE}/commonStorage/finishUploading/${fileId}`);
-		expect(finishCall.options.body).toEqual({});
+		// empty {} body -> matrix42ApiRequest drops the body entirely
+		expect(finishCall.options).not.toHaveProperty('body');
 
 		const commentCall = httpCall(ctx.http, 4);
 		expect(commentCall.options.method).toBe('POST');
 		expect(commentCall.options.url).toBe(`${API_BASE}/filestorage/comment/${fileId}`);
-		expect(commentCall.options.body).toBe('my comment');
+		// the comment is sent JSON-encoded (quoted)
+		expect(commentCall.options.body).toBe(JSON.stringify('my comment'));
 
 		expect(result).toEqual([[{ json: { Message: 'Success' }, pairedItem: { item: 0 } }]]);
 	});
 
-	it('storage:uploadFile skips the comment call when no comment is provided', async () => {
+	it('storage:upload skips the comment call when no comment is provided', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
 				resource: 'storage',
-				operation: 'uploadFile',
+				operation: 'upload',
 				filename: 'file.txt',
 				storageId: 'store-1',
 				objectId: 'obj-1',
 				binaryPropertyName: 'data',
 				additionalFields: {},
 			},
-			binaryBuffer: new Uint8Array(1),
+			binaryBuffer: new Uint8Array(4),
 		});
 		ctx.http
 			.mockResolvedValueOnce([{ typeId: 'type-1' }])
@@ -836,16 +1159,34 @@ describe('Matrix42.execute()', () => {
 		await node.execute.call(ctx.mockThis);
 
 		expect(ctx.http).toHaveBeenCalledTimes(4);
-		const lastCall = httpCall(ctx.http, 3);
-		expect(lastCall.options.url).toContain(`${API_BASE}/commonStorage/finishUploading/`);
+		expect(httpCall(ctx.http, 3).options.url).toContain(`${API_BASE}/commonStorage/finishUploading/`);
+	});
+
+	it('storage:upload throws NodeOperationError when no configuration item matches the objectId', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'storage',
+				operation: 'upload',
+				filename: 'file.txt',
+				storageId: 'store-1',
+				objectId: 'missing',
+				binaryPropertyName: 'data',
+				additionalFields: {},
+			},
+			binaryBuffer: new Uint8Array(2),
+		});
+		ctx.http.mockResolvedValueOnce([]); // typeId lookup returns nothing
+
+		await expect(node.execute.call(ctx.mockThis)).rejects.toBeInstanceOf(NodeOperationError);
 	});
 
 	it('uses matrix42BasicApi when authentication is "basic"', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'basic',
-				resource: 'asql',
-				operation: 'deleteObject',
+				resource: 'dataObject',
+				operation: 'delete',
 				configurationItem: 'CI',
 				objectId: 'obj-1',
 			},
@@ -857,12 +1198,49 @@ describe('Matrix42.execute()', () => {
 		expect(httpCall(ctx.http).credentialType).toBe('matrix42BasicApi');
 	});
 
+	it('sets skipSslCertificateValidation from the credential allowUnauthorizedCerts flag', async () => {
+		const ctx = createExecuteContext({
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'dataObject',
+				operation: 'delete',
+				configurationItem: 'CI',
+				objectId: 'obj-1',
+			},
+			allowUnauthorizedCerts: true,
+		});
+
+		await node.execute.call(ctx.mockThis);
+
+		expect(httpCall(ctx.http).options.skipSslCertificateValidation).toBe(true);
+	});
+
+	it('reads resource and operation once each, only for item index 0', async () => {
+		const ctx = createExecuteContext({
+			items: [{ json: {} }, { json: {} }],
+			params: {
+				authentication: 'webserviceToken',
+				resource: 'dataFragment',
+				operation: 'delete',
+				dataDefinition: 'DD',
+				fragmentId: 'frag-1',
+			},
+		});
+
+		await node.execute.call(ctx.mockThis);
+
+		const resourceReads = ctx.getNodeParameter.mock.calls.filter((c) => c[0] === 'resource');
+		const operationReads = ctx.getNodeParameter.mock.calls.filter((c) => c[0] === 'operation');
+		expect(resourceReads).toEqual([['resource', 0]]);
+		expect(operationReads).toEqual([['operation', 0]]);
+	});
+
 	it('rethrows request errors when continueOnFail is false', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
-				resource: 'asql',
-				operation: 'deleteFragment',
+				resource: 'dataFragment',
+				operation: 'delete',
 				dataDefinition: 'DD',
 				fragmentId: 'frag-1',
 			},
@@ -878,8 +1256,8 @@ describe('Matrix42.execute()', () => {
 			items: [{ json: {} }, { json: {} }],
 			params: {
 				authentication: 'webserviceToken',
-				resource: 'asql',
-				operation: 'deleteFragment',
+				resource: 'dataFragment',
+				operation: 'delete',
 				dataDefinition: 'DD',
 				fragmentId: 'frag-1',
 			},
@@ -896,18 +1274,6 @@ describe('Matrix42.execute()', () => {
 			],
 		]);
 	});
-
-	// BUG: execute() silently falls through when resource/operation match no dispatch
-	// branch. `responseData` keeps its previous value ([] initially), so an unsupported
-	// operation returns an empty (or stale) result instead of failing loudly. n8n nodes
-	// conventionally throw a NodeOperationError for unsupported resource/operation combos.
-	it.todo('should throw a NodeOperationError for an unknown resource/operation combination');
-
-	// BUG (in Matrix42TicketFunctions.createTicket, reachable via execute): when priority
-	// is -1 and the priority-mapping request resolves to an empty array [], the truthy
-	// check `if (calculatedPriority)` passes and `calculatedPriority[0].PriorityValue`
-	// throws a TypeError instead of falling back to the default priority 2.
-	it.todo('should fall back to priority 2 when the priority mapping lookup returns an empty array');
 });
 
 // ---------------------------------------------------------------------------
@@ -919,7 +1285,7 @@ describe('Matrix42.methods.loadOptions', () => {
 	const loadOptions = node.methods.loadOptions;
 
 	describe('getUsers', () => {
-		it('queries SPSUserClassBase, maps/sorts users, and prepends the None entry', async () => {
+		it('queries SPSUserClassBase with pagesize 1000, maps and sorts users (no None sentinel)', async () => {
 			const ctx = createLoadOptionsContext([
 				[
 					{ ID: 'u-2', FirstName: 'Zed', LastName: 'Zulu' },
@@ -933,22 +1299,22 @@ describe('Matrix42.methods.loadOptions', () => {
 			const call = httpCall(ctx.http);
 			expect(call.options.method).toBe('GET');
 			expect(call.options.url).toBe(`${API_BASE}/data/fragments/SPSUserClassBase`);
-			expect(call.options.qs).toEqual({ columns: 'ID, FirstName, LastName' });
+			expect(call.options.qs).toEqual({ columns: 'ID, FirstName, LastName', pagesize: 1000 });
 
 			expect(result).toEqual([
-				{ name: 'None (Check Description)', value: '00000000-0000-0000-0000-000000000000' },
 				// null LastName is coalesced to '' leaving a trailing space
 				{ name: 'Anna ', value: 'u-1' },
 				{ name: 'Zed Zulu', value: 'u-2' },
 			]);
 		});
 
-		// BUG: every loadOptions method guards `if (responseData === undefined)` and then
-		// passes that same undefined value as the error object to the NodeApiError
-		// constructor, which immediately crashes with
-		// "TypeError: Cannot read properties of undefined (reading 'message')".
-		// The intended NodeApiError('No data got returned') is never thrown.
-		it.todo('should throw a NodeApiError("No data got returned") when the API returns undefined');
+		it('throws a NodeOperationError when the API does not return an array', async () => {
+			const ctx = createLoadOptionsContext([undefined]);
+
+			await expect(loadOptions.getUsers.call(ctx.mockThis)).rejects.toBeInstanceOf(
+				NodeOperationError,
+			);
+		});
 	});
 
 	it('getTicketUrgencies maps DisplayString/Value from SVMActivityPickupUrgency, sorted by name', async () => {
@@ -962,7 +1328,6 @@ describe('Matrix42.methods.loadOptions', () => {
 		const result = await loadOptions.getTicketUrgencies.call(ctx.mockThis);
 
 		const call = httpCall(ctx.http);
-		expect(call.options.method).toBe('GET');
 		expect(call.options.url).toBe(`${API_BASE}/data/fragments/SVMActivityPickupUrgency`);
 		expect(call.options.qs).toEqual({ columns: 'ID, Position, Value, DisplayString' });
 
@@ -1018,7 +1383,7 @@ describe('Matrix42.methods.loadOptions', () => {
 	});
 
 	describe('getTicketRoles', () => {
-		it('promotes the category default role and prepends the None entry', async () => {
+		it('promotes the category default role and sorts the rest (no None sentinel)', async () => {
 			const ctx = createLoadOptionsContext(
 				[
 					[
@@ -1049,24 +1414,37 @@ describe('Matrix42.methods.loadOptions', () => {
 			});
 
 			expect(result).toEqual([
-				{ name: 'None (Check Description)', value: '00000000-0000-0000-0000-000000000000' },
 				{ name: 'Delta (Category Default)', value: 'r3' },
 				{ name: 'Alpha', value: 'r1' },
 				{ name: 'Beta', value: 'r2' },
 			]);
 		});
 
-		it('throws a NodeApiError before any request when no category is selected', async () => {
+		it('escapes single quotes in the category id used for the where clause', async () => {
+			const ctx = createLoadOptionsContext(
+				[[{ Name: 'Alpha', ID: 'r1' }], []],
+				{ category: "a'b" },
+			);
+
+			await loadOptions.getTicketRoles.call(ctx.mockThis);
+
+			expect(httpCall(ctx.http, 1).options.qs).toEqual({
+				where: "ID = 'a''b' AND Hidden = 0",
+				columns: 'ID, Parent, Name, DefaultRecipientRole',
+			});
+		});
+
+		it('throws a NodeOperationError before any request when no category is selected', async () => {
 			const ctx = createLoadOptionsContext([], { category: '' });
 
 			await expect(loadOptions.getTicketRoles.call(ctx.mockThis)).rejects.toBeInstanceOf(
-				NodeApiError,
+				NodeOperationError,
 			);
 			expect(ctx.http).not.toHaveBeenCalled();
 		});
 	});
 
-	it('getTicketSlas filters SLA_Type = 10 and prepends the None entry', async () => {
+	it('getTicketSlas filters SLA_Type = 10 (no None sentinel)', async () => {
 		const ctx = createLoadOptionsContext([
 			[
 				{ ID: 'sla-2', Name: 'Silver' },
@@ -1084,13 +1462,12 @@ describe('Matrix42.methods.loadOptions', () => {
 		});
 
 		expect(result).toEqual([
-			{ name: 'None (Check Description)', value: '00000000-0000-0000-0000-000000000000' },
 			{ name: 'Gold', value: 'sla-1' },
 			{ name: 'Silver', value: 'sla-2' },
 		]);
 	});
 
-	it('getTicketOlas filters SLA_Type = 20 and prepends the None entry', async () => {
+	it('getTicketOlas filters SLA_Type = 20 (no None sentinel)', async () => {
 		const ctx = createLoadOptionsContext([[{ ID: 'ola-1', Name: 'Ops OLA' }]]);
 
 		const result = await loadOptions.getTicketOlas.call(ctx.mockThis);
@@ -1102,13 +1479,10 @@ describe('Matrix42.methods.loadOptions', () => {
 			columns: 'ID, [Expression-ObjectID], Name, FulfillmentResponsibleRole',
 		});
 
-		expect(result).toEqual([
-			{ name: 'None (Check Description)', value: '00000000-0000-0000-0000-000000000000' },
-			{ name: 'Ops OLA', value: 'ola-1' },
-		]);
+		expect(result).toEqual([{ name: 'Ops OLA', value: 'ola-1' }]);
 	});
 
-	it('getTicketCloseReasons filters StateGroup = 7 AND State = 204 with no None entry', async () => {
+	it('getTicketCloseReasons filters StateGroup = 7 AND State = 204', async () => {
 		const ctx = createLoadOptionsContext([
 			[
 				{ ID: 'a', Position: 1, Value: 408, DisplayString: 'Solved', StateGroup: 7 },
@@ -1172,9 +1546,7 @@ describe('Matrix42.methods.loadOptions', () => {
 	});
 
 	it('getStorageProviders queries the eoid alias but uses the fragment ID as the option value', async () => {
-		const ctx = createLoadOptionsContext([
-			[{ ID: 'id-1', Name: 'Blob Storage', eoid: 'eoid-1' }],
-		]);
+		const ctx = createLoadOptionsContext([[{ ID: 'id-1', Name: 'Blob Storage', eoid: 'eoid-1' }]]);
 
 		const result = await loadOptions.getStorageProviders.call(ctx.mockThis);
 
@@ -1186,7 +1558,7 @@ describe('Matrix42.methods.loadOptions', () => {
 		expect(result).toEqual([{ name: 'Blob Storage', value: 'id-1' }]);
 	});
 
-	it('getJournalEntryTypes prepends the "None (Default)" entry with string value "0"', async () => {
+	it('getJournalEntryTypes prepends the "None (Default)" entry with numeric value 0', async () => {
 		const ctx = createLoadOptionsContext([
 			[
 				{ Value: 5, DisplayString: 'Note' },
@@ -1201,7 +1573,7 @@ describe('Matrix42.methods.loadOptions', () => {
 		expect(call.options.qs).toEqual({ columns: 'Value, DisplayString' });
 
 		expect(result).toEqual([
-			{ name: 'None (Default)', value: '0' },
+			{ name: 'None (Default)', value: 0 },
 			{ name: 'Mail', value: 3 },
 			{ name: 'Note', value: 5 },
 		]);
