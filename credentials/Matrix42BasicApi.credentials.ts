@@ -52,6 +52,14 @@ export class Matrix42BasicApi implements ICredentialType {
 			description:
 				'Whether to connect even if SSL certificate validation is not possible, e.g. when the Matrix42 server uses a self-signed certificate',
 		},
+		{
+			displayName: 'Response Language',
+			name: 'explicitLanguage',
+			type: 'string',
+			default: '',
+			placeholder: 'e.g. de-DE',
+			hint: 'Optional. Sent as the "Explicit-Language" header on every request to control the language of the response. Leave empty to use the server default.',
+		},
 	];
 
 	authenticate: IAuthenticateGeneric = {

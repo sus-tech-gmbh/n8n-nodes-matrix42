@@ -38,11 +38,12 @@ describe('Matrix42TokenApi credential', () => {
 	});
 
 	describe('properties', () => {
-		it('should define exactly four properties in order', () => {
+		it('should define exactly five properties in order', () => {
 			expect(credential.properties.map((p) => p.name)).toEqual([
 				'serverUrl',
 				'webserviceToken',
 				'allowUnauthorizedCerts',
+				'explicitLanguage',
 				'accessToken',
 			]);
 		});
@@ -85,6 +86,12 @@ describe('Matrix42TokenApi credential', () => {
 				description:
 					'Whether to connect even if SSL certificate validation is not possible, e.g. when the Matrix42 server uses a self-signed certificate',
 			});
+		});
+
+		it('should define explicitLanguage as an optional string defaulting to empty', () => {
+			const lang = credential.properties.find((p) => p.name === 'explicitLanguage');
+			expect(lang?.type).toBe('string');
+			expect(lang?.default).toBe('');
 		});
 
 		it('should define accessToken as a hidden expirable field', () => {
@@ -216,12 +223,13 @@ describe('Matrix42BasicApi credential', () => {
 	});
 
 	describe('properties', () => {
-		it('should define exactly four properties in order', () => {
+		it('should define exactly five properties in order', () => {
 			expect(credential.properties.map((p) => p.name)).toEqual([
 				'serverUrl',
 				'user',
 				'password',
 				'allowUnauthorizedCerts',
+				'explicitLanguage',
 			]);
 		});
 

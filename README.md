@@ -43,9 +43,13 @@ This node supports multiple operations across different resources:
 -   **Delete** (`delete`): Delete an object by its ID.
 
 
+### Data Query
+
+-   **Get Data** (`getData`): Read the list items of a data query, with Return All / paging (zero-based pages).
+
 ### Ticket
 
--   **Create** (`create`): Open a new ticket in the Service Desk.
+-   **Create** (`create`): Open a new ticket in the Service Desk (with a selectable initial **State**).
 
 -   **Close** (`close`): Close an Incident or Service Request.
 
@@ -112,6 +116,9 @@ On execution, the node:
 - **Breaking (node v2):** the `ASQL` resource was split into **Data Fragment** and **Data Object**, and operations were renamed to the standard CRUD set (`Get Many`, `Create`, `Update`, `Delete`, `Get`, `Transform`, `Close`, `Add Journal Entry`, `Upload`, `Execute`). Existing workflows using the node must reselect the resource/operation.
 - Token auth now performs the documented API‑token → access‑token exchange
 - Added an **Ignore SSL Issues (Insecure)** toggle to both credentials.
+- Added a **Data Query** resource with **Get Data** (paged, with Return All).
+- Ticket **Create** gained a selectable **State** field (loaded from the instance's activity states; defaults to New/200).
+- Added an optional **Response Language** credential field, sent as the `Explicit-Language` header on every request.
 - `Get Many` (fragments) gained **Return All / Limit** paging.
 
 **0.1.3:**

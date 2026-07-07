@@ -195,6 +195,30 @@ const createTicketOperation: INodeProperties[] = [
 		required: true,
 	},
 	{
+		displayName: 'State Name or ID',
+		name: 'state',
+		type: 'options',
+		options: [
+			{
+				name: 'New',
+				value: 200,
+			},
+		],
+		typeOptions: {
+			loadOptionsMethod: 'getActivityStates',
+		},
+		default: 200,
+		description:
+			'The initial state of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		displayOptions: {
+			show: {
+				resource: ['ticket'],
+				operation: ['create'],
+			},
+		},
+		required: true,
+	},
+	{
 		displayName: 'Additional Fields',
 		name: 'additionalFields',
 		type: 'collection',

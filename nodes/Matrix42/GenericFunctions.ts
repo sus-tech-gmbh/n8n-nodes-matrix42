@@ -10,6 +10,7 @@ import type {
 interface Matrix42Credentials {
 	serverUrl: string;
 	allowUnauthorizedCerts?: boolean;
+	explicitLanguage?: string;
 }
 
 /** Removes a trailing slash so `serverUrl + '/m42Services/...'` never produces a double slash. */
@@ -36,17 +37,23 @@ export async function matrix42ApiRequest(
 ): Promise<any> {
 	const authenticationMethod = this.getNodeParameter('authentication', 0) as string;
 	const credentialType = authenticationMethod === 'basic' ? 'matrix42BasicApi' : 'matrix42TokenApi';
-	const { serverUrl, allowUnauthorizedCerts } =
+	const { serverUrl, allowUnauthorizedCerts, explicitLanguage } =
 		await this.getCredentials<Matrix42Credentials>(credentialType);
 
 	const isJson = contentType?.toLowerCase().includes('application/json');
 	const hasBody =
 		method !== 'GET' && method !== 'HEAD' && body != null && Object.keys(body).length > 0;
 
+	const headers: IDataObject = {
+		'Content-Type': contentType,
+	};
+	// Optional response-language header, configured on the credential (empty = not sent).
+	if (explicitLanguage) {
+		headers['Explicit-Language'] = explicitLanguage;
+	}
+
 	const options: IHttpRequestOptions = {
-		headers: {
-			'Content-Type': contentType,
-		},
+		headers,
 		method,
 		body: hasBody ? body : undefined,
 		qs: query,

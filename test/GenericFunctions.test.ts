@@ -25,16 +25,22 @@ function createMockThis(
 		authentication?: string;
 		serverUrl?: string;
 		allowUnauthorizedCerts?: boolean;
+		explicitLanguage?: string;
 	} = {},
 ): MockContext {
 	const { authentication = 'basic', serverUrl = 'https://m42.example.com' } = overrides;
 	const allowUnauthorizedCerts = overrides.allowUnauthorizedCerts;
+	const explicitLanguage = overrides.explicitLanguage;
 
 	const httpRequestWithAuthentication = vi.fn().mockResolvedValue({ ok: true });
 	const getNodeParameter = vi.fn((name: string, _index?: number) =>
 		name === 'authentication' ? authentication : undefined,
 	);
-	const getCredentials = vi.fn(async (_type: string) => ({ serverUrl, allowUnauthorizedCerts }));
+	const getCredentials = vi.fn(async (_type: string) => ({
+		serverUrl,
+		allowUnauthorizedCerts,
+		explicitLanguage,
+	}));
 
 	const mockThis = mock<IExecuteFunctions>();
 	const writableThis = mockThis as unknown as Record<string, unknown>;
@@ -328,6 +334,35 @@ describe('matrix42ApiRequest', () => {
 			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
 
 			expect(capturedOptions(ctx).skipSslCertificateValidation).toBe(false);
+		});
+	});
+
+	describe('Explicit-Language header', () => {
+		it('adds the Explicit-Language header when the credential sets explicitLanguage', async () => {
+			const ctx = createMockThis({ explicitLanguage: 'de-DE' });
+
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+			expect(capturedOptions(ctx).headers).toEqual({
+				'Content-Type': 'application/json',
+				'Explicit-Language': 'de-DE',
+			});
+		});
+
+		it('omits the Explicit-Language header when explicitLanguage is empty', async () => {
+			const ctx = createMockThis({ explicitLanguage: '' });
+
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+			expect(capturedOptions(ctx).headers).toEqual({ 'Content-Type': 'application/json' });
+		});
+
+		it('omits the Explicit-Language header when explicitLanguage is undefined', async () => {
+			const ctx = createMockThis({});
+
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+			expect(capturedOptions(ctx).headers).not.toHaveProperty('Explicit-Language');
 		});
 	});
 

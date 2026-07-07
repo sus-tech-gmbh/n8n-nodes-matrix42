@@ -93,6 +93,7 @@ describe('createTicket', () => {
 		impact: 2,
 		urgency: 3,
 		priority: 4,
+		state: 200,
 		additionalFields: {
 			responsibleRole: 'role-guid',
 			creator: 'creator-guid',
@@ -117,7 +118,7 @@ describe('createTicket', () => {
 			body: {
 				Category: 'category-guid',
 				Subject: 'Printer is on fire',
-				state: 100,
+				state: 200,
 				DescriptionHTML: '<p>Flames everywhere</p>',
 				Impact: 2,
 				Urgency: 3,
@@ -291,7 +292,7 @@ describe('createTicket', () => {
 			// mandatory keys still present
 			expect(body.Category).toBe('category-guid');
 			expect(body.EntryBy).toBe(4);
-			expect(body.state).toBe(100);
+			expect(body.state).toBe(200);
 		});
 
 		it('omits relations that are blank ("") or the nil GUID but keeps populated ones', async () => {

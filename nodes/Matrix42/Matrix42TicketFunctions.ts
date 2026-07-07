@@ -42,6 +42,7 @@ export async function createTicket(this: IExecuteFunctions, i: number) {
 	const descriptionHTML = this.getNodeParameter('descriptionHTML', i) as string;
 	const impact = toNumber.call(this, this.getNodeParameter('impact', i), 'Impact');
 	const urgency = toNumber.call(this, this.getNodeParameter('urgency', i), 'Urgency');
+	const state = toNumber.call(this, this.getNodeParameter('state', i), 'State');
 
 	const additionalFields = this.getNodeParameter('additionalFields', i, {}) as {
 		responsibleRole?: string;
@@ -86,7 +87,7 @@ export async function createTicket(this: IExecuteFunctions, i: number) {
 	const body: IDataObject = {
 		Category: category,
 		Subject: subject,
-		state: 100,
+		state,
 		DescriptionHTML: descriptionHTML,
 		Impact: impact,
 		Urgency: urgency,

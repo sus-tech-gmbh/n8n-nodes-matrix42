@@ -52,10 +52,12 @@ function createExecuteContext(options: {
 }): ExecContext {
 	const {
 		items = [{ json: {} }],
-		params,
 		continueOnFail = false,
 		allowUnauthorizedCerts = false,
 	} = options;
+	// The ticket State field always has a default (200); inject it so ticket:create
+	// tests that don't override it behave like the real UI.
+	const params = { state: 200, ...options.params };
 
 	const http = vi.fn().mockResolvedValue({ ok: true });
 	const getNodeParameter = vi.fn((name: string, itemIndex?: number, fallback?: unknown) => {
@@ -155,6 +157,7 @@ function optionValues(prop: INodeProperties): Array<string | number> {
 const RESOURCE_OPERATIONS: Record<string, string[]> = {
 	dataFragment: ['create', 'delete', 'getAll', 'update'],
 	dataObject: ['create', 'delete', 'get', 'update'],
+	dataQuery: ['getData'],
 	import: ['execute'],
 	storage: ['upload'],
 	ticket: ['addJournalEntry', 'close', 'create', 'transform'],
@@ -163,6 +166,7 @@ const RESOURCE_OPERATIONS: Record<string, string[]> = {
 const OPERATION_DEFAULTS: Record<string, string> = {
 	dataFragment: 'getAll',
 	dataObject: 'get',
+	dataQuery: 'getData',
 	import: 'execute',
 	storage: 'upload',
 	ticket: 'create',
@@ -182,6 +186,9 @@ const FIELDS: Record<string, Record<string, string[]>> = {
 		update: ['configurationItem', 'objectData', 'full'],
 		delete: ['configurationItem', 'objectId'],
 	},
+	dataQuery: {
+		getData: ['dataQueryId', 'returnAll', 'pageSize', 'page', 'additionalFields'],
+	},
 	ticket: {
 		create: [
 			'ticketType',
@@ -191,6 +198,7 @@ const FIELDS: Record<string, Record<string, string[]>> = {
 			'impact',
 			'urgency',
 			'priority',
+			'state',
 			'additionalFields',
 		],
 		close: [
@@ -279,7 +287,7 @@ describe('Matrix42 node description', () => {
 		]);
 	});
 
-	it('has a resource parameter with exactly [dataFragment, dataObject, import, storage, ticket]', () => {
+	it('has a resource parameter with exactly [dataFragment, dataObject, dataQuery, import, storage, ticket]', () => {
 		const resource = description.properties.find((p) => p.name === 'resource');
 		expect(resource).toBeDefined();
 		expect(resource!.type).toBe('options');
@@ -288,6 +296,7 @@ describe('Matrix42 node description', () => {
 		expect(resource!.options).toEqual([
 			{ name: 'Data Fragment', value: 'dataFragment' },
 			{ name: 'Data Object', value: 'dataObject' },
+			{ name: 'Data Query', value: 'dataQuery' },
 			{ name: 'Import', value: 'import' },
 			{ name: 'Storage', value: 'storage' },
 			{ name: 'Ticket', value: 'ticket' },
@@ -305,7 +314,7 @@ describe('Matrix42 node properties integrity', () => {
 	const operationProps = properties.filter((p) => p.name === 'operation');
 
 	it('exposes exactly one operation dropdown per resource, gated via displayOptions.show.resource', () => {
-		expect(operationProps).toHaveLength(5);
+		expect(operationProps).toHaveLength(6);
 
 		const gatedResources: string[] = [];
 		for (const prop of operationProps) {
@@ -321,6 +330,7 @@ describe('Matrix42 node properties integrity', () => {
 		expect(gatedResources.sort()).toEqual([
 			'dataFragment',
 			'dataObject',
+			'dataQuery',
 			'import',
 			'storage',
 			'ticket',
@@ -480,6 +490,7 @@ describe('Matrix42.execute()', () => {
 		creator: 'user-c',
 		visibleInPortal: true,
 		sequenceEoid: 'seq-1',
+		dataQueryId: 'dq-1',
 		additionalFields: {},
 	};
 
@@ -497,6 +508,7 @@ describe('Matrix42.execute()', () => {
 		{ resource: 'ticket', operation: 'transform', method: 'POST', endpoint: '/ticket/transform' },
 		{ resource: 'ticket', operation: 'addJournalEntry', method: 'POST', endpoint: '/journal/Add' },
 		{ resource: 'import', operation: 'execute', method: 'POST', endpoint: '/importdata/executeimportdefinition' },
+		{ resource: 'dataQuery', operation: 'getData', method: 'GET', endpoint: '/DataQuery/dq-1' },
 	])(
 		'dispatches $resource:$operation to $method $endpoint',
 		async ({ resource, operation, method, endpoint }) => {
@@ -729,7 +741,7 @@ describe('Matrix42.execute()', () => {
 		expect(call.options.body).toEqual({
 			Category: 'cat-9',
 			Subject: 'Subj',
-			state: 100,
+			state: 200,
 			DescriptionHTML: '<p>d</p>',
 			Impact: 2,
 			Urgency: 3,
@@ -1357,6 +1369,28 @@ describe('Matrix42.methods.loadOptions', () => {
 		]);
 	});
 
+	it('getActivityStates queries SPSCommonPickupObjectStatus StateGroup=7, sorted by numeric value', async () => {
+		const ctx = createLoadOptionsContext([
+			[
+				{ Value: 202, DisplayString: 'In Progress', Position: 15 },
+				{ Value: 200, DisplayString: 'New', Position: 5 },
+				{ Value: 205, DisplayString: 'Planned', Position: 1 },
+			],
+		]);
+
+		const result = await loadOptions.getActivityStates.call(ctx.mockThis);
+
+		const call = httpCall(ctx.http);
+		expect(call.options.url).toBe(`${API_BASE}/data/fragments/SPSCommonPickupObjectStatus`);
+		expect(call.options.qs).toEqual({ where: 'StateGroup = 7', columns: 'Value, DisplayString, Position' });
+
+		expect(result).toEqual([
+			{ name: 'New', value: 200 },
+			{ name: 'In Progress', value: 202 },
+			{ name: 'Planned', value: 205 },
+		]);
+	});
+
 	it('getTicketCategories builds a sorted "Parent / Child" hierarchy', async () => {
 		const ctx = createLoadOptionsContext([
 			[
@@ -1542,6 +1576,26 @@ describe('Matrix42.methods.loadOptions', () => {
 		expect(result).toEqual([
 			{ name: 'Alpha Import', value: 'eoid-a' },
 			{ name: 'Beta Import', value: 'eoid-b' },
+		]);
+	});
+
+	it('getDataQueries queries PDRDataQueryClassBase and uses the eoid alias as the option value', async () => {
+		const ctx = createLoadOptionsContext([
+			[
+				{ Name: 'Beta Query', eoid: 'eoid-b' },
+				{ Name: 'Alpha Query', eoid: 'eoid-a' },
+			],
+		]);
+
+		const result = await loadOptions.getDataQueries.call(ctx.mockThis);
+
+		const call = httpCall(ctx.http);
+		expect(call.options.url).toBe(`${API_BASE}/data/fragments/PDRDataQueryClassBase`);
+		expect(call.options.qs).toEqual({ columns: 'Name, [Expression-ObjectID] as eoid' });
+
+		expect(result).toEqual([
+			{ name: 'Alpha Query', value: 'eoid-a' },
+			{ name: 'Beta Query', value: 'eoid-b' },
 		]);
 	});
 

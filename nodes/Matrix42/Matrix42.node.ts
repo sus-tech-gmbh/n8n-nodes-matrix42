@@ -11,6 +11,7 @@ import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import { escapeAsqlString } from './GenericFunctions';
 import { matrix42ImportFields, matrix42ImportOperations } from './Matrix42ImportOperations';
 import { matrix42DataFields, matrix42DataOperations } from './Matrix42DataOperations';
+import { matrix42DataQueryFields, matrix42DataQueryOperations } from './Matrix42DataQueryOperations';
 import { matrix42TicketFields, matrix42TicketOperations } from './Matrix42TicketOperations';
 import {
 	addFragment,
@@ -24,6 +25,7 @@ import {
 } from './Matrix42DataFunctions';
 import { matrix42ApiRequest } from './GenericFunctions';
 import {addJournalEntry, closeTicket, createTicket, transformTicket} from "./Matrix42TicketFunctions";
+import { getData } from './Matrix42DataQueryFunctions';
 import {executeImportDefinition} from "./Matrix42ImportFunctions";
 import {matrix42StorageFields, matrix42StorageOperations} from "./Matrix42StorageOperations";
 import {uploadFileToCI} from "./Matrix42StorageFunctions";
@@ -98,6 +100,10 @@ export class Matrix42 implements INodeType {
 						value: 'dataObject',
 					},
 					{
+						name: 'Data Query',
+						value: 'dataQuery',
+					},
+					{
 						name: 'Import',
 						value: 'import',
 					},
@@ -116,6 +122,10 @@ export class Matrix42 implements INodeType {
 			// Data Fragment & Data Object
 			...matrix42DataOperations,
 			...matrix42DataFields,
+
+			// Data Query
+			...matrix42DataQueryOperations,
+			...matrix42DataQueryFields,
 
 			// Import
 			...matrix42ImportOperations,
@@ -453,6 +463,35 @@ export class Matrix42 implements INodeType {
 
 				return returnData;
 			},
+			async getActivityStates(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				const responseData = await matrix42ApiRequest.call(
+					this,
+					'GET',
+					'/data/fragments/SPSCommonPickupObjectStatus',
+					{},
+					{
+						where: 'StateGroup = 7',
+						columns: "Value, DisplayString, Position",
+					}
+				);
+
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
+				}
+
+				const returnData: INodePropertyOptions[] = [];
+
+				for (const stateData of responseData) {
+					returnData.push({
+						name: stateData.DisplayString,
+						value: stateData.Value,
+					});
+				}
+
+				returnData.sort((a, b) => Number(a.value) - Number(b.value));
+
+				return returnData;
+			},
 			async getTicketCloseReasons(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const responseData = await matrix42ApiRequest.call(
 					this,
@@ -517,6 +556,42 @@ export class Matrix42 implements INodeType {
 					returnData.push({
 						name: errorTypeName,
 						value: errorTypeValue,
+					});
+				}
+
+				returnData.sort((a, b) => {
+					if (a.name < b.name) {
+						return -1;
+					}
+					if (a.name > b.name) {
+						return 1;
+					}
+					return 0;
+				});
+
+				return returnData;
+			},
+			async getDataQueries(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				const responseData = await matrix42ApiRequest.call(
+					this,
+					'GET',
+					'/data/fragments/PDRDataQueryClassBase',
+					{},
+					{
+						columns: "Name, [Expression-ObjectID] as eoid",
+					}
+				);
+
+				if (!Array.isArray(responseData)) {
+					throw new NodeOperationError(this.getNode(), 'No data got returned');
+				}
+
+				const returnData: INodePropertyOptions[] = [];
+
+				for (const dataQuery of responseData) {
+					returnData.push({
+						name: dataQuery.Name,
+						value: dataQuery.eoid,
 					});
 				}
 
@@ -679,6 +754,9 @@ export class Matrix42 implements INodeType {
 				close: closeTicket,
 				transform: transformTicket,
 				addJournalEntry,
+			},
+			dataQuery: {
+				getData,
 			},
 			import: {
 				execute: executeImportDefinition,
