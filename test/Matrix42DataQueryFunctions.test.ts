@@ -35,7 +35,7 @@ function callOptions(http: ReturnType<typeof vi.fn>, index = 0): IHttpRequestOpt
 describe('getData', () => {
 	beforeEach(() => vi.clearAllMocks());
 
-	it('fetches a single page: GET /DataQuery/{id} with pageSize and page, wrapping the array', async () => {
+	it('fetches a single page: POST /DataQuery/{id} with pageSize and page, wrapping the array', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 			authentication: 'token',
 			dataQueryId: 'dq-1',
@@ -50,7 +50,7 @@ describe('getData', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const options = callOptions(httpRequestWithAuthentication);
-		expect(options.method).toBe('GET');
+		expect(options.method).toBe('POST');
 		expect(options.url).toBe(`${API_BASE}/DataQuery/dq-1`);
 		expect(options.qs).toEqual({ pageSize: 50, page: 2 });
 		expect(result).toEqual([{ Id: 'a' }, { Id: 'b' }]);
@@ -144,6 +144,49 @@ describe('getData', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(2);
 		expect(result).toEqual([{ Id: 1 }, { Id: 2 }]);
+	});
+
+	it('sends a parsed userFilters object in the POST body', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			authentication: 'token',
+			dataQueryId: 'dq-1',
+			returnAll: false,
+			pageSize: 10,
+			page: 0,
+			additionalFields: {},
+			userFilters: '{"LogicalOperator":1,"Conditions":[{"Operator":7,"Property":"Name","Value":["test"]}]}',
+		});
+		httpRequestWithAuthentication.mockResolvedValue([]);
+
+		await getData.call(mockThis, 0);
+
+		const options = callOptions(httpRequestWithAuthentication);
+		expect(options.method).toBe('POST');
+		// the parsed QueryFilterGroup is sent as the raw body (not wrapped)
+		expect(options.body).toEqual({
+			LogicalOperator: 1,
+			Conditions: [{ Operator: 7, Property: 'Name', Value: ['test'] }],
+		});
+	});
+
+	it('sends a default empty filter group when no userFilters is provided', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			authentication: 'token',
+			dataQueryId: 'dq-1',
+			returnAll: false,
+			pageSize: 10,
+			page: 0,
+			additionalFields: {},
+			userFilters: '',
+		});
+		httpRequestWithAuthentication.mockResolvedValue([]);
+
+		await getData.call(mockThis, 0);
+
+		expect(callOptions(httpRequestWithAuthentication).body).toEqual({
+			LogicalOperator: 1,
+			Conditions: [],
+		});
 	});
 
 	it('wraps a non-array single-page response', async () => {

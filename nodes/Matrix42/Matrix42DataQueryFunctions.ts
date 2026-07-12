@@ -1,4 +1,4 @@
-import { type IDataObject, type IExecuteFunctions } from 'n8n-workflow';
+import { type IDataObject, type IExecuteFunctions, jsonParse } from 'n8n-workflow';
 import { matrix42ApiRequest } from './GenericFunctions';
 
 // Maps the Additional Fields parameter names to the exact query-string keys the
@@ -25,7 +25,9 @@ export async function getData(this: IExecuteFunctions, i: number) {
 	const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
 	const pageSize = this.getNodeParameter('pageSize', i, 100) as number;
 	const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
+	const userFiltersRaw = this.getNodeParameter('userFilters', i, '') as string | IDataObject;
 
+	// All the paging/filter options are query-string params (Source 0 in the contract).
 	const baseQs: IDataObject = {};
 	for (const [field, qsKey] of Object.entries(OPTIONAL_QS)) {
 		const value = additionalFields[field];
@@ -33,6 +35,17 @@ export async function getData(this: IExecuteFunctions, i: number) {
 			baseQs[qsKey] = value as IDataObject[keyof IDataObject];
 		}
 	}
+
+	// The POST variant carries a QueryFilterGroup as the raw request body. When the user provides
+	// no filter, an empty group is sent (the endpoint requires a body — an empty {} is rejected).
+	const body: IDataObject =
+		userFiltersRaw !== undefined && userFiltersRaw !== null && userFiltersRaw !== ''
+			? typeof userFiltersRaw === 'object'
+				? userFiltersRaw
+				: jsonParse<IDataObject>(userFiltersRaw, {
+						errorMessage: 'The "User Filters" field does not contain valid JSON',
+					})
+			: { LogicalOperator: 1, Conditions: [] };
 
 	const endpoint = `/DataQuery/${encodeURIComponent(dataQueryId)}` as const;
 	const returnData: IDataObject[] = [];
@@ -42,7 +55,7 @@ export async function getData(this: IExecuteFunctions, i: number) {
 		let page = 0;
 		let received = 0;
 		do {
-			const rows = (await matrix42ApiRequest.call(this, 'GET', endpoint, {}, {
+			const rows = (await matrix42ApiRequest.call(this, 'POST', endpoint, body, {
 				...baseQs,
 				pageSize,
 				page,
@@ -56,7 +69,7 @@ export async function getData(this: IExecuteFunctions, i: number) {
 	}
 
 	const page = this.getNodeParameter('page', i, 0) as number;
-	const response = (await matrix42ApiRequest.call(this, 'GET', endpoint, {}, {
+	const response = (await matrix42ApiRequest.call(this, 'POST', endpoint, body, {
 		...baseQs,
 		pageSize,
 		page,

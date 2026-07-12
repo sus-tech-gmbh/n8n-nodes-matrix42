@@ -187,7 +187,7 @@ const FIELDS: Record<string, Record<string, string[]>> = {
 		delete: ['configurationItem', 'objectId'],
 	},
 	dataQuery: {
-		getData: ['dataQueryId', 'returnAll', 'pageSize', 'page', 'additionalFields'],
+		getData: ['dataQueryId', 'returnAll', 'pageSize', 'page', 'userFilters', 'additionalFields'],
 	},
 	ticket: {
 		create: [
@@ -508,7 +508,7 @@ describe('Matrix42.execute()', () => {
 		{ resource: 'ticket', operation: 'transform', method: 'POST', endpoint: '/ticket/transform' },
 		{ resource: 'ticket', operation: 'addJournalEntry', method: 'POST', endpoint: '/journal/Add' },
 		{ resource: 'import', operation: 'execute', method: 'POST', endpoint: '/importdata/executeimportdefinition' },
-		{ resource: 'dataQuery', operation: 'getData', method: 'GET', endpoint: '/DataQuery/dq-1' },
+		{ resource: 'dataQuery', operation: 'getData', method: 'POST', endpoint: '/DataQuery/dq-1' },
 	])(
 		'dispatches $resource:$operation to $method $endpoint',
 		async ({ resource, operation, method, endpoint }) => {

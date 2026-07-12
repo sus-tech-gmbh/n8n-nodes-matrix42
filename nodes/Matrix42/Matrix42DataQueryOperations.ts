@@ -90,6 +90,20 @@ const getDataOperation: INodeProperties[] = [
 		},
 	},
 	{
+		displayName: 'User Filters',
+		name: 'userFilters',
+		type: 'json',
+		default: '',
+		description:
+			'Optional structured filter group sent in the request body (a QueryFilterGroup). Example: <code>{ "LogicalOperator": 1, "Conditions": [ { "Operator": 7, "Property": "Name", "Value": ["test"] } ] }</code>. LogicalOperator: 1 = And, 2 = Or. Operator: 1 = Equals, 2 = NonEquals, 7 = Contains, 10 = In, 12 = Between, 14 = IsEmpty, 15 = IsNotEmpty (see the Matrix42 QueryFilterOperator enum for the full list). Leave empty to apply no extra filter.',
+		displayOptions: {
+			show: {
+				resource: ['dataQuery'],
+				operation: ['getData'],
+			},
+		},
+	},
+	{
 		displayName: 'Additional Fields',
 		name: 'additionalFields',
 		type: 'collection',
