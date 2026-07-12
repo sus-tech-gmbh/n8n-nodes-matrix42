@@ -320,11 +320,10 @@ export class Matrix42 implements INodeType {
 				return returnData;
 			},
 			async getTicketRoles(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				const categoryId = this.getNodeParameter('category') as string;
-
-				if (!categoryId) {
-					throw new NodeOperationError(this.getNode(), 'No category selected');
-				}
+				// The role list does not depend on the category — the category is only used to
+				// mark the category's default recipient role, so it stays optional here (the
+				// field lives inside a collection and may be opened before a category is chosen).
+				const categoryId = this.getNodeParameter('category', '') as string;
 
 				const responseData = await matrix42ApiRequest.call(
 					this,
@@ -352,25 +351,27 @@ export class Matrix42 implements INodeType {
 					});
 				}
 
-				const responseDataCategory = await matrix42ApiRequest.call(
-					this,
-					'GET',
-					'/data/fragments/SPSScCategoryClassBase',
-					{},
-					{
-						where: `ID = '${escapeAsqlString(categoryId)}' AND Hidden = 0`,
-						columns: "ID, Parent, Name, DefaultRecipientRole",
-					}
-				);
-
 				let defaultOption: INodePropertyOptions | undefined;
-				if (Array.isArray(responseDataCategory) && responseDataCategory.length) {
-					const defaultRoleId = responseDataCategory[0].DefaultRecipientRole as string | undefined;
-					if (defaultRoleId) {
-						const idx = returnData.findIndex(opt => opt.value === defaultRoleId);
-						if (idx !== -1) {
-							defaultOption = returnData.splice(idx, 1)[0];
-							defaultOption.name = `${defaultOption.name} (Category Default)`;
+				if (categoryId) {
+					const responseDataCategory = await matrix42ApiRequest.call(
+						this,
+						'GET',
+						'/data/fragments/SPSScCategoryClassBase',
+						{},
+						{
+							where: `ID = '${escapeAsqlString(categoryId)}' AND Hidden = 0`,
+							columns: "ID, Parent, Name, DefaultRecipientRole",
+						}
+					);
+
+					if (Array.isArray(responseDataCategory) && responseDataCategory.length) {
+						const defaultRoleId = responseDataCategory[0].DefaultRecipientRole as string | undefined;
+						if (defaultRoleId) {
+							const idx = returnData.findIndex(opt => opt.value === defaultRoleId);
+							if (idx !== -1) {
+								defaultOption = returnData.splice(idx, 1)[0];
+								defaultOption.name = `${defaultOption.name} (Category Default)`;
+							}
 						}
 					}
 				}

@@ -187,7 +187,7 @@ const FIELDS: Record<string, Record<string, string[]>> = {
 		delete: ['configurationItem', 'objectId'],
 	},
 	dataQuery: {
-		getData: ['dataQueryId', 'returnAll', 'pageSize', 'page', 'userFilters', 'additionalFields'],
+		getData: ['dataQueryId', 'returnAll', 'pageSize', 'page', 'additionalFields'],
 	},
 	ticket: {
 		create: [
@@ -508,7 +508,7 @@ describe('Matrix42.execute()', () => {
 		{ resource: 'ticket', operation: 'transform', method: 'POST', endpoint: '/ticket/transform' },
 		{ resource: 'ticket', operation: 'addJournalEntry', method: 'POST', endpoint: '/journal/Add' },
 		{ resource: 'import', operation: 'execute', method: 'POST', endpoint: '/importdata/executeimportdefinition' },
-		{ resource: 'dataQuery', operation: 'getData', method: 'POST', endpoint: '/DataQuery/dq-1' },
+		{ resource: 'dataQuery', operation: 'getData', method: 'GET', endpoint: '/DataQuery/dq-1' },
 	])(
 		'dispatches $resource:$operation to $method $endpoint',
 		async ({ resource, operation, method, endpoint }) => {
@@ -1468,13 +1468,26 @@ describe('Matrix42.methods.loadOptions', () => {
 			});
 		});
 
-		it('throws a NodeOperationError before any request when no category is selected', async () => {
-			const ctx = createLoadOptionsContext([], { category: '' });
-
-			await expect(loadOptions.getTicketRoles.call(ctx.mockThis)).rejects.toBeInstanceOf(
-				NodeOperationError,
+		it('returns all roles without a category lookup when no category is selected', async () => {
+			const ctx = createLoadOptionsContext(
+				[
+					[
+						{ Name: 'Beta', ID: 'r2' },
+						{ Name: 'Alpha', ID: 'r1' },
+					],
+				],
+				{ category: '' },
 			);
-			expect(ctx.http).not.toHaveBeenCalled();
+
+			const result = await loadOptions.getTicketRoles.call(ctx.mockThis);
+
+			// only the roles query runs — no category default lookup, and no throw
+			expect(ctx.http).toHaveBeenCalledTimes(1);
+			expect(httpCall(ctx.http, 0).options.url).toBe(`${API_BASE}/data/fragments/SPSScRoleClassBase`);
+			expect(result).toEqual([
+				{ name: 'Alpha', value: 'r1' },
+				{ name: 'Beta', value: 'r2' },
+			]);
 		});
 	});
 

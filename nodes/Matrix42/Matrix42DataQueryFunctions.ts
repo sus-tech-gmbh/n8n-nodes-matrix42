@@ -24,8 +24,10 @@ export async function getData(this: IExecuteFunctions, i: number) {
 	const dataQueryId = this.getNodeParameter('dataQueryId', i) as string;
 	const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
 	const pageSize = this.getNodeParameter('pageSize', i, 100) as number;
-	const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
-	const userFiltersRaw = this.getNodeParameter('userFilters', i, '') as string | IDataObject;
+	const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject & {
+		userFilters?: string | IDataObject;
+	};
+	const userFiltersRaw = additionalFields.userFilters;
 
 	// All the paging/filter options are query-string params (Source 0 in the contract).
 	const baseQs: IDataObject = {};
@@ -36,16 +38,18 @@ export async function getData(this: IExecuteFunctions, i: number) {
 		}
 	}
 
-	// The POST variant carries a QueryFilterGroup as the raw request body. When the user provides
-	// no filter, an empty group is sent (the endpoint requires a body — an empty {} is rejected).
-	const body: IDataObject =
-		userFiltersRaw !== undefined && userFiltersRaw !== null && userFiltersRaw !== ''
-			? typeof userFiltersRaw === 'object'
-				? userFiltersRaw
-				: jsonParse<IDataObject>(userFiltersRaw, {
-						errorMessage: 'The "User Filters" field does not contain valid JSON',
-					})
-			: { LogicalOperator: 1, Conditions: [] };
+	// A structured filter group can only be passed in the body of the POST variant. Use POST
+	// only when User Filters are supplied; otherwise use the simpler GET (no body).
+	const hasUserFilters =
+		userFiltersRaw !== undefined && userFiltersRaw !== null && userFiltersRaw !== '';
+	const method = hasUserFilters ? 'POST' : 'GET';
+	const body: IDataObject = hasUserFilters
+		? typeof userFiltersRaw === 'object'
+			? (userFiltersRaw as IDataObject)
+			: jsonParse<IDataObject>(userFiltersRaw as string, {
+					errorMessage: 'The "User Filters" field does not contain valid JSON',
+				})
+		: {};
 
 	const endpoint = `/DataQuery/${encodeURIComponent(dataQueryId)}` as const;
 	const returnData: IDataObject[] = [];
@@ -55,7 +59,7 @@ export async function getData(this: IExecuteFunctions, i: number) {
 		let page = 0;
 		let received = 0;
 		do {
-			const rows = (await matrix42ApiRequest.call(this, 'POST', endpoint, body, {
+			const rows = (await matrix42ApiRequest.call(this, method, endpoint, body, {
 				...baseQs,
 				pageSize,
 				page,
@@ -69,7 +73,7 @@ export async function getData(this: IExecuteFunctions, i: number) {
 	}
 
 	const page = this.getNodeParameter('page', i, 0) as number;
-	const response = (await matrix42ApiRequest.call(this, 'POST', endpoint, body, {
+	const response = (await matrix42ApiRequest.call(this, method, endpoint, body, {
 		...baseQs,
 		pageSize,
 		page,
