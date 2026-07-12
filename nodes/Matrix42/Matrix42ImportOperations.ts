@@ -1,4 +1,4 @@
-import {INodeProperties} from "n8n-workflow";
+import type { INodeProperties } from 'n8n-workflow';
 
 export const matrix42ImportOperations: INodeProperties[] = [
 	{
@@ -13,36 +13,35 @@ export const matrix42ImportOperations: INodeProperties[] = [
 		},
 		options: [
 			{
-				name: 'Execute Import Definition',
-				value: 'executeImportDefinition',
-				description: 'Execute an Import Definition',
-				action: 'Execute import definition',
-			}
+				name: 'Execute',
+				value: 'execute',
+				description: 'Execute an import definition',
+				action: 'Execute an import definition',
+			},
 		],
-		default: 'executeImportDefinition',
+		default: 'execute',
 	},
 ];
 
 const executeImportDefinitionOperation: INodeProperties[] = [
 	{
-		displayName: 'Sequence Name or ID',
+		displayName: 'Import Definition Name or ID',
 		name: 'sequenceEoid',
 		type: 'options',
 		typeOptions: {
 			loadOptionsMethod: 'getImportDefinitions',
 		},
 		default: '',
-		description: 'The Name or Expression-ObjectID of the Import Definition. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		description:
+			'The import definition to execute. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['executeImportDefinition']
+				resource: ['import'],
+				operation: ['execute'],
 			},
 		},
 		required: true,
 	},
-]
-
-export const matrix42ImportFields: INodeProperties[] = [
-	...executeImportDefinitionOperation
 ];
 
+export const matrix42ImportFields: INodeProperties[] = [...executeImportDefinitionOperation];

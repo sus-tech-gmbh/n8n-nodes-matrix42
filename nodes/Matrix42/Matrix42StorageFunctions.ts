@@ -1,5 +1,6 @@
-import type {IDataObject, IExecuteFunctions} from "n8n-workflow";
-import {matrix42ApiRequest, uuidv4} from "./GenericFunctions";
+import { randomUUID } from 'node:crypto';
+import { type IDataObject, type IExecuteFunctions, NodeOperationError } from 'n8n-workflow';
+import { escapeAsqlString, matrix42ApiRequest } from './GenericFunctions';
 
 export async function uploadFileToCI(this: IExecuteFunctions, i: number) {
 	const filename = this.getNodeParameter('filename', i) as string;
@@ -14,39 +15,41 @@ export async function uploadFileToCI(this: IExecuteFunctions, i: number) {
 	const fileBuffer = await this.helpers.getBinaryDataBuffer(i, binaryPropertyName);
 	const size = fileBuffer.length;
 
-	const typeIdResponse = await matrix42ApiRequest.call(
+	const typeIdResponse = (await matrix42ApiRequest.call(
 		this,
 		'GET',
 		'/data/fragments/SPSCommonClassBase',
 		{},
 		{
-			where: `[Expression-ObjectID] = '${objectId}'`,
-			columns: "TypeID as typeId",
-		}
-	);
+			where: `[Expression-ObjectID] = '${escapeAsqlString(objectId)}'`,
+			columns: 'TypeID as typeId',
+		},
+	)) as IDataObject[];
 
-	const typeId = typeIdResponse?.[0]?.typeId as string;
+	const typeId = typeIdResponse?.[0]?.typeId as string | undefined;
+	if (!typeId) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`No configuration item was found for Object ID "${objectId}"`,
+		);
+	}
 
-	const uniqueFileId = uuidv4();
+	const uniqueFileId = randomUUID();
 	const getUploadUrlBody = {
 		Name: filename,
 		StorageId: storageId,
 		TypeId: typeId,
 		ObjectId: objectId,
 		UniqueFileId: uniqueFileId,
-		Size: size
-	}
+		Size: size,
+	};
 
-	// get upload url
-	await matrix42ApiRequest.call(
-		this,
-		'POST',
-		'/filestorage/getuploadurl',
-		getUploadUrlBody,
-		{}
-	);
+	// Register the upload; the server allocates storage for this UniqueFileId.
+	// (For external storage providers the response carries a signed URL — uploading there
+	// directly is not yet supported and would need an external-provider test instance.)
+	await matrix42ApiRequest.call(this, 'POST', '/filestorage/getuploadurl', getUploadUrlBody, {});
 
-	// upload file
+	// Upload the bytes to the default endpoint keyed by the unique file ID.
 	await matrix42ApiRequest.call(
 		this,
 		'POST',
@@ -54,7 +57,7 @@ export async function uploadFileToCI(this: IExecuteFunctions, i: number) {
 		fileBuffer as unknown as object,
 		{ fileid: uniqueFileId },
 		undefined,
-		'application/octet-stream'
+		'application/octet-stream',
 	);
 
 	// finish upload
@@ -63,21 +66,21 @@ export async function uploadFileToCI(this: IExecuteFunctions, i: number) {
 		'POST',
 		`/commonStorage/finishUploading/${uniqueFileId}`,
 		{},
-		{}
+		{},
 	);
 
-	// add comment
-	if(additionalFields.comment && additionalFields.comment.length > 0) {
+	// add comment (the endpoint expects the comment as a JSON-encoded string in the body)
+	if (additionalFields.comment && additionalFields.comment.length > 0) {
 		await matrix42ApiRequest.call(
 			this,
 			'POST',
 			`/filestorage/comment/${uniqueFileId}`,
-			additionalFields.comment as unknown as object,
-			{}
+			JSON.stringify(additionalFields.comment) as unknown as object,
+			{},
 		);
 	}
 
-	const returnData: IDataObject[] = [{Message: "Success"}];
+	const returnData: IDataObject[] = [{ Message: 'Success' }];
 
 	return returnData;
 }

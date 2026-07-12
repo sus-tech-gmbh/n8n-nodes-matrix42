@@ -21,45 +21,49 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 
 This node supports multiple operations across different resources:
 
-### Data Fragments (asql)
+### Data Fragment
 
--   **Get Fragments** (`getFragments`): Retrieve data fragments from a specified Data Definition.
+-   **Get Many** (`getAll`): Retrieve data fragments matching a search expression, with Return All / Limit paging.
 
--   **Add Fragment** (`addFragment`): Create a new data fragment in the specified Data Definition.
+-   **Create** (`create`): Create a new data fragment in the specified Data Definition.
 
--   **Update Fragment** (`updateFragment`): Update an existing data fragment by its ID.
+-   **Update** (`update`): Update an existing data fragment.
 
--   **Delete Fragment** (`deleteFragment`): Remove a data fragment by its ID.
-
-
-### Data Objects (asql)
-
--   **Add Object** (`addObject`): Create a new Data Object under a given fragment.
-
--   **Get Object** (`getObject`): Retrieve a Data Object by its ID.
-
--   **Update Object** (`updateObject`): Update an existing Data Object by its ID.
-
--   **Delete Object** (`deleteObject`): Delete a Data Object by its ID.
+-   **Delete** (`delete`): Delete a data fragment by its ID.
 
 
-### Tickets
+### Data Object
 
--   **Create Ticket** (`createTicket`): Open a new ticket in the Service Desk.
+-   **Create** (`create`): Create a new object for a Configuration Item.
 
--   **Close Ticket** (`closeTicket`): Close an existing ticket by ID.
+-   **Get** (`get`): Retrieve a single object by its ID.
 
--   **Transform Ticket** (`transformTicket`): Apply a transformation to a ticket.
+-   **Update** (`update`): Update an existing object.
+
+-   **Delete** (`delete`): Delete an object by its ID.
+
+
+### Data Query
+
+-   **Get Data** (`getData`): Read the list items of a data query, with Return All / paging (zero-based pages). Uses the `POST` variant so a structured **User Filters** group (`QueryFilterGroup`) can be passed in the body for ad-hoc filtering.
+
+### Ticket
+
+-   **Create** (`create`): Open a new ticket in the Service Desk (with a selectable initial **State**).
+
+-   **Close** (`close`): Close an Incident or Service Request.
+
+-   **Transform** (`transform`): Transform a ticket into another type.
 
 -   **Add Journal Entry** (`addJournalEntry`): Add a journal entry to a ticket.
 
 ### Storage
 
--   **Upload File** (`uploadFile`): Upload a file.
+-   **Upload** (`upload`): Upload a file and attach it to a Configuration Item.
 
 ### Import
 
--   **Execute Import Definition** (`executeImportDefinition`): Run a predefined import definition to ingest data.
+-   **Execute** (`execute`): Run a predefined import definition to ingest data.
 
 ## Credentials
 
@@ -67,35 +71,39 @@ This node supports multiple operations across different resources:
 
 This node supports two authentication methods. Configure these under **Workflow → Credentials**.
 
-### Matrix42 Token Auth
+### Matrix42 Webservice Token Auth
 
-1.  **API Token** — Your long‑lived Matrix42 API Token.
+1.  **Server URL** — Your Matrix42 server URL (e.g. `https://matrix42.example.com`).
 
-2.  **Base URL** — Your Matrix42 server URL (e.g. `https://api.mycompany.com`).
+2.  **Webservice Token** — Your Matrix42 API Token.
+
+3.  **Ignore SSL Issues (Insecure)** — Enable when the server uses a self‑signed certificate.
 
 
 On execution, the node:
 
--   Exchanges the API Token for a short‑lived Bearer (JWT) token via `GenerateAccessTokenFromApiToken`.
+-   Exchanges the API Token for a short‑lived Bearer (JWT) access token via `GenerateAccessTokenFromApiToken` (handled automatically in the credential's pre‑authentication step; the access token is cached and refreshed on expiry).
 
--   Uses the Bearer token in the `Authorization` header for all subsequent calls.
+-   Uses the access token in the `Authorization` header for all subsequent calls.
 
 
-> **Self‑signed certificates**: If your Matrix42 server uses a self‑signed SSL certificate, you must add its CA certificate to n8n’s trusted certificate store. For details, see the n8n docs on adding self‑signed certificates: https://docs.n8n.io/hosting/configuration/configuration-examples/custom-certificate-authority/
+> **Self‑signed certificates**: enable **Ignore SSL Issues (Insecure)** on the credential, or add the server's CA certificate to n8n's trusted store (see https://docs.n8n.io/hosting/configuration/configuration-examples/custom-certificate-authority/).
 
 ### Matrix42 Basic Auth
 
-1.  **Username** and **Password** — Your Matrix42 user credentials.
+1.  **Server URL** — As above.
 
-2.  **Base URL** — As above.
+2.  **User** and **Password** — Your Matrix42 user credentials.
+
+3.  **Ignore SSL Issues (Insecure)** — As above.
 
 ## Compatibility
 
--   **n8n**: Tested with v1.100.1 and later.
+-   **n8n**: Node API version 1; built and tested against `n8n-workflow` 2.x. Requires n8n 1.85 or later (uses `NodeConnectionTypes`). Last tested with n8n 2.2.3.
 
--   **Node.js**: v22.17.0 or higher.
+-   **Node.js**: v22 or higher.
 
--   **Matrix42 ESMP API**: Tested with Matrix42 12.1.2.5325.
+-   **Matrix42 ESMP API**: Last tested against Matrix42 26.1.0.1390.
 
 ## Resources
 
@@ -103,6 +111,15 @@ On execution, the node:
 * [Matrix42 Web Services](https://help.matrix42.com/030_ESMP/030_INT/Business_Processes_and_API_Integrations/Matrix42_Web_Services_API#Public_API)
 
 ## Version History
+
+**0.2.0:**
+- **Breaking (node v2):** the `ASQL` resource was split into **Data Fragment** and **Data Object**, and operations were renamed to the standard CRUD set (`Get Many`, `Create`, `Update`, `Delete`, `Get`, `Transform`, `Close`, `Add Journal Entry`, `Upload`, `Execute`). Existing workflows using the node must reselect the resource/operation.
+- Token auth now performs the documented API‑token → access‑token exchange
+- Added an **Ignore SSL Issues (Insecure)** toggle to both credentials.
+- Added a **Data Query** resource with **Get Data** (POST-based, paged, with Return All and a structured **User Filters** body).
+- Ticket **Create** gained a selectable **State** field (loaded from the instance's activity states; defaults to New/200) and an **Extra Properties** collection for setting arbitrary/custom ticket attributes as name/value pairs.
+- Added an optional **Response Language** credential field, sent as the `Explicit-Language` header on every request.
+- `Get Many` (fragments) gained **Return All / Limit** paging.
 
 **0.1.3:**
 - Added Operations:

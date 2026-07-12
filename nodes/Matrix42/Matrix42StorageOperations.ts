@@ -1,4 +1,4 @@
-import {INodeProperties} from "n8n-workflow";
+import type { INodeProperties } from 'n8n-workflow';
 
 export const matrix42StorageOperations: INodeProperties[] = [
 	{
@@ -11,16 +11,15 @@ export const matrix42StorageOperations: INodeProperties[] = [
 				resource: ['storage'],
 			},
 		},
-		// eslint-disable-next-line n8n-nodes-base/node-param-options-type-unsorted-items
 		options: [
 			{
-				name: 'Upload File',
-				value: 'uploadFile',
-				description: 'Upload one or more file',
-				action: 'Upload file',
-			}
+				name: 'Upload',
+				value: 'upload',
+				description: 'Upload a file and attach it to a configuration item',
+				action: 'Upload a file',
+			},
 		],
-		default: 'uploadFile',
+		default: 'upload',
 	},
 ];
 
@@ -30,10 +29,12 @@ const uploadFilesOperation: INodeProperties[] = [
 		name: 'filename',
 		type: 'string',
 		default: '',
-		description: 'The Name of the File',
+		placeholder: 'e.g. report.pdf',
+		description: 'The name of the file as it should appear in Matrix42',
 		displayOptions: {
 			show: {
-				operation: ['uploadFile']
+				resource: ['storage'],
+				operation: ['upload'],
 			},
 		},
 		required: true,
@@ -46,10 +47,12 @@ const uploadFilesOperation: INodeProperties[] = [
 			loadOptionsMethod: 'getStorageProviders',
 		},
 		default: '',
-		description: 'The Storage Provider where the file should be uploaded to. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		description:
+			'The storage provider to upload the file to. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['uploadFile']
+				resource: ['storage'],
+				operation: ['upload'],
 			},
 		},
 		required: true,
@@ -59,10 +62,11 @@ const uploadFilesOperation: INodeProperties[] = [
 		name: 'objectId',
 		type: 'string',
 		default: '',
-		description: 'The Object ID of the Configuration Item where the file should be attached to',
+		description: 'The Object ID of the configuration item to attach the file to',
 		displayOptions: {
 			show: {
-				operation: ['uploadFile']
+				resource: ['storage'],
+				operation: ['upload'],
 			},
 		},
 		required: true,
@@ -75,10 +79,10 @@ const uploadFilesOperation: INodeProperties[] = [
 		required: true,
 		displayOptions: {
 			show: {
-				operation: ['uploadFile']
+				resource: ['storage'],
+				operation: ['upload'],
 			},
 		},
-		placeholder: '',
 		hint: 'The name of the input binary field containing the file to be uploaded',
 	},
 	{
@@ -89,7 +93,8 @@ const uploadFilesOperation: INodeProperties[] = [
 		default: {},
 		displayOptions: {
 			show: {
-				operation: ['uploadFile'],
+				resource: ['storage'],
+				operation: ['upload'],
 			},
 		},
 		options: [
@@ -98,13 +103,10 @@ const uploadFilesOperation: INodeProperties[] = [
 				name: 'comment',
 				type: 'string',
 				default: '',
-				description: 'Comment that is displayed on the uploaded attachment',
-			}
+				description: 'Comment displayed on the uploaded attachment',
+			},
 		],
 	},
 ];
 
-
-export const matrix42StorageFields: INodeProperties[] = [
-	...uploadFilesOperation,
-];
+export const matrix42StorageFields: INodeProperties[] = [...uploadFilesOperation];

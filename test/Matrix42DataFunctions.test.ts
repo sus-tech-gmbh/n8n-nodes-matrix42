@@ -11,7 +11,7 @@ import {
 	getObject,
 	updateObject,
 	deleteObject,
-} from '../nodes/Matrix42/Matrix42AsqlFunctions';
+} from '../nodes/Matrix42/Matrix42DataFunctions';
 
 const SERVER_URL = 'https://m42.example.com';
 const API_BASE = `${SERVER_URL}/m42Services/api`;
@@ -25,18 +25,23 @@ interface MockContext {
 
 /**
  * Builds an IExecuteFunctions mock. `params` is a per-name value map honoring
- * the (name, itemIndex, fallback?) signature used by the source: a name that
- * is absent from the map resolves to the provided fallback (used by
- * getFragments' `additionalFields` parameter).
+ * the (name, itemIndex, fallback?) signature used by the source: a name absent
+ * from the map resolves to the provided fallback (this is how the source's
+ * `returnAll` -> false, `limit` -> 50 and `additionalFields` -> {} defaults are
+ * exercised). `creds` is what getCredentials resolves to.
  */
-function createMockThis(params: Record<string, unknown>, response: unknown = {}): MockContext {
+function createMockThis(
+	params: Record<string, unknown>,
+	response: unknown = {},
+	creds: Record<string, unknown> = { serverUrl: SERVER_URL },
+): MockContext {
 	const mockThis = mock<IExecuteFunctions>();
 	const httpRequest = vi.fn().mockResolvedValue(response);
 	const getNodeParameter = vi.fn(
 		(name: string, _itemIndex: number, fallback?: unknown): unknown =>
 			Object.prototype.hasOwnProperty.call(params, name) ? params[name] : fallback,
 	);
-	const getCredentials = vi.fn().mockResolvedValue({ serverUrl: SERVER_URL });
+	const getCredentials = vi.fn().mockResolvedValue(creds);
 
 	Object.assign(mockThis, {
 		getNodeParameter,
@@ -59,7 +64,7 @@ describe('getFragments', () => {
 		columns: 'ID,Subject,State',
 	};
 
-	it('sends a GET to /data/fragments/{ddname} with where and columns in the query string and no body', async () => {
+	it('sends a GET to /data/fragments/{ddname} with where, columns and the default pagesize (limit fallback 50) and no body', async () => {
 		const { mockThis, httpRequest, getNodeParameter, getCredentials } = createMockThis(
 			baseParams,
 			[],
@@ -68,7 +73,7 @@ describe('getFragments', () => {
 		await getFragments.call(mockThis, 0);
 
 		expect(httpRequest).toHaveBeenCalledTimes(1);
-		const [credentialType, options] = httpRequest.mock.calls[0] as [string, object];
+		const [credentialType, options] = httpRequest.mock.calls[0] as [string, Record<string, unknown>];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toStrictEqual({
 			headers: { 'Content-Type': 'application/json' },
@@ -76,6 +81,7 @@ describe('getFragments', () => {
 			qs: {
 				where: "Subject LIKE '%printer%'",
 				columns: 'ID,Subject,State',
+				pagesize: 50,
 			},
 			url: `${API_BASE}/data/fragments/SPSActivityClassBase`,
 			json: true,
@@ -84,15 +90,19 @@ describe('getFragments', () => {
 		// body is removed entirely for GET requests, not just set to undefined
 		expect(Object.prototype.hasOwnProperty.call(options, 'body')).toBe(false);
 		expect(getCredentials).toHaveBeenCalledWith('matrix42BasicApi');
-		// additionalFields is read with an empty-object fallback
+		// returnAll defaults to false, limit defaults to 50, additionalFields defaults to {}
+		expect(getNodeParameter).toHaveBeenCalledWith('returnAll', 0, false);
+		expect(getNodeParameter).toHaveBeenCalledWith('limit', 0, 50);
 		expect(getNodeParameter).toHaveBeenCalledWith('additionalFields', 0, {});
 	});
 
-	it('adds pagesize, pagenumber and sort to the query string when additionalFields provides them', async () => {
+	it('uses the explicit limit as pagesize and only reads additionalFields.sort', async () => {
 		const { mockThis, httpRequest } = createMockThis(
 			{
 				...baseParams,
-				additionalFields: { pageSize: 50, pageNumber: 2, sort: 'Subject ASC' },
+				limit: 10,
+				// pageSize/pageNumber here must be IGNORED by the current source
+				additionalFields: { sort: 'Subject ASC', pageSize: 999, pageNumber: 7 },
 			},
 			[],
 		);
@@ -103,18 +113,14 @@ describe('getFragments', () => {
 		expect(options.qs).toStrictEqual({
 			where: "Subject LIKE '%printer%'",
 			columns: 'ID,Subject,State',
-			pagesize: 50,
-			pagenumber: 2,
 			sort: 'Subject ASC',
+			pagesize: 10,
 		});
 	});
 
-	it('keeps pageSize/pageNumber of 0 (defined check) but drops an empty-string sort (truthiness check)', async () => {
+	it('drops an empty-string sort (truthiness check) but still sets pagesize from limit', async () => {
 		const { mockThis, httpRequest } = createMockThis(
-			{
-				...baseParams,
-				additionalFields: { pageSize: 0, pageNumber: 0, sort: '' },
-			},
+			{ ...baseParams, limit: 25, additionalFields: { sort: '' } },
 			[],
 		);
 
@@ -124,12 +130,23 @@ describe('getFragments', () => {
 		expect(options.qs).toStrictEqual({
 			where: "Subject LIKE '%printer%'",
 			columns: 'ID,Subject,State',
-			pagesize: 0,
-			pagenumber: 0,
+			pagesize: 25,
 		});
 	});
 
-	it('spreads an array response into the returned array', async () => {
+	it('encodeURIComponent-encodes the data definition name in the path', async () => {
+		const { mockThis, httpRequest } = createMockThis(
+			{ ...baseParams, dataDefinition: 'SPS Activity/Base' },
+			[],
+		);
+
+		await getFragments.call(mockThis, 0);
+
+		const [, options] = httpRequest.mock.calls[0] as [string, { url: string }];
+		expect(options.url).toBe(`${API_BASE}/data/fragments/SPS%20Activity%2FBase`);
+	});
+
+	it('spreads an array response into the returned array (non-returnAll path)', async () => {
 		const fragments = [{ ID: 'frag-1' }, { ID: 'frag-2' }];
 		const { mockThis } = createMockThis(baseParams, fragments);
 
@@ -138,12 +155,68 @@ describe('getFragments', () => {
 		expect(result).toStrictEqual([{ ID: 'frag-1' }, { ID: 'frag-2' }]);
 	});
 
-	it('wraps a non-array response into a one-element array', async () => {
+	it('wraps a non-array response into a one-element array (non-returnAll path)', async () => {
 		const { mockThis } = createMockThis(baseParams, { ID: 'only-one' });
 
 		const result = await getFragments.call(mockThis, 0);
 
 		expect(result).toStrictEqual([{ ID: 'only-one' }]);
+	});
+
+	it('pages with pagesize 500 and an incrementing pagenumber until a short page is returned when returnAll is true', async () => {
+		const { mockThis, httpRequest } = createMockThis({ ...baseParams, returnAll: true }, undefined);
+		httpRequest.mockReset();
+		const fullPage = Array.from({ length: 500 }, (_, k) => ({ ID: `f${k}` }));
+		httpRequest.mockResolvedValueOnce(fullPage).mockResolvedValueOnce([{ ID: 'last' }]);
+
+		const result = await getFragments.call(mockThis, 0);
+
+		expect(httpRequest).toHaveBeenCalledTimes(2);
+
+		const [, firstOptions] = httpRequest.mock.calls[0] as [string, { method: string; qs: object }];
+		expect(firstOptions.method).toBe('GET');
+		expect(firstOptions.qs).toStrictEqual({
+			where: "Subject LIKE '%printer%'",
+			columns: 'ID,Subject,State',
+			pagesize: 500,
+			pagenumber: 0,
+		});
+
+		const [, secondOptions] = httpRequest.mock.calls[1] as [string, { qs: object }];
+		expect(secondOptions.qs).toStrictEqual({
+			where: "Subject LIKE '%printer%'",
+			columns: 'ID,Subject,State',
+			pagesize: 500,
+			pagenumber: 1,
+		});
+
+		// 500 from the full page + 1 from the short page
+		expect(result).toHaveLength(501);
+		expect(result[0]).toStrictEqual({ ID: 'f0' });
+		expect(result[500]).toStrictEqual({ ID: 'last' });
+	});
+
+	it('stops after a single request and wraps a non-array page when returnAll is true', async () => {
+		const { mockThis, httpRequest } = createMockThis(
+			{ ...baseParams, returnAll: true },
+			{ ID: 'single' },
+		);
+
+		const result = await getFragments.call(mockThis, 0);
+
+		expect(httpRequest).toHaveBeenCalledTimes(1);
+		expect(result).toStrictEqual([{ ID: 'single' }]);
+	});
+
+	it('does not read the limit parameter on the returnAll path', async () => {
+		const { mockThis, getNodeParameter } = createMockThis(
+			{ ...baseParams, returnAll: true },
+			[],
+		);
+
+		await getFragments.call(mockThis, 0);
+
+		expect(getNodeParameter).not.toHaveBeenCalledWith('limit', expect.anything(), expect.anything());
 	});
 
 	it('uses the matrix42TokenApi credential type when authentication is not "basic"', async () => {
@@ -158,6 +231,18 @@ describe('getFragments', () => {
 		expect(httpRequest.mock.calls[0][0]).toBe('matrix42TokenApi');
 	});
 
+	it('sets skipSslCertificateValidation to true when the credential allows unauthorized certs', async () => {
+		const { mockThis, httpRequest } = createMockThis(baseParams, [], {
+			serverUrl: SERVER_URL,
+			allowUnauthorizedCerts: true,
+		});
+
+		await getFragments.call(mockThis, 0);
+
+		const [, options] = httpRequest.mock.calls[0] as [string, { skipSslCertificateValidation: boolean }];
+		expect(options.skipSslCertificateValidation).toBe(true);
+	});
+
 	it('reads item-scoped parameters at the given item index but authentication always at index 0', async () => {
 		const { mockThis, getNodeParameter } = createMockThis(baseParams, []);
 
@@ -166,7 +251,9 @@ describe('getFragments', () => {
 		expect(getNodeParameter).toHaveBeenCalledWith('dataDefinition', 3);
 		expect(getNodeParameter).toHaveBeenCalledWith('where', 3);
 		expect(getNodeParameter).toHaveBeenCalledWith('columns', 3);
+		expect(getNodeParameter).toHaveBeenCalledWith('returnAll', 3, false);
 		expect(getNodeParameter).toHaveBeenCalledWith('additionalFields', 3, {});
+		expect(getNodeParameter).toHaveBeenCalledWith('limit', 3, 50);
 		expect(getNodeParameter).toHaveBeenCalledWith('authentication', 0);
 	});
 });
@@ -187,7 +274,7 @@ describe('addFragment', () => {
 		expect(httpRequest).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = httpRequest.mock.calls[0] as [
 			string,
-			{ body: object } & object,
+			{ body: object } & Record<string, unknown>,
 		];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toStrictEqual({
@@ -199,8 +286,32 @@ describe('addFragment', () => {
 			json: true,
 			skipSslCertificateValidation: false,
 		});
-		// the parameter object is passed through by reference, unmodified
+		// an already-resolved object parameter is passed through by reference, unmodified
 		expect(options.body).toBe(fragmentData);
+	});
+
+	it('parses a JSON string fragmentData parameter into an object body', async () => {
+		const { mockThis, httpRequest } = createMockThis(
+			{ ...params, fragmentData: '{"Subject":"From string","State":2}' },
+			'id',
+		);
+
+		await addFragment.call(mockThis, 0);
+
+		const [, options] = httpRequest.mock.calls[0] as [string, { body: object }];
+		expect(options.body).toStrictEqual({ Subject: 'From string', State: 2 });
+	});
+
+	it('encodeURIComponent-encodes the data definition name in the path', async () => {
+		const { mockThis, httpRequest } = createMockThis(
+			{ ...params, dataDefinition: 'Weird Name/X' },
+			'id',
+		);
+
+		await addFragment.call(mockThis, 0);
+
+		const [, options] = httpRequest.mock.calls[0] as [string, { url: string }];
+		expect(options.url).toBe(`${API_BASE}/data/fragments/Weird%20Name%2FX`);
 	});
 
 	it('returns the API response wrapped as [{ fragmentId: response }]', async () => {
@@ -226,7 +337,7 @@ describe('updateFragment', () => {
 		await updateFragment.call(mockThis, 0);
 
 		expect(httpRequest).toHaveBeenCalledTimes(1);
-		const [credentialType, options] = httpRequest.mock.calls[0] as [string, object];
+		const [credentialType, options] = httpRequest.mock.calls[0] as [string, Record<string, unknown>];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toStrictEqual({
 			headers: { 'Content-Type': 'application/json' },
@@ -252,22 +363,22 @@ describe('deleteFragment', () => {
 	const params = {
 		authentication: 'basic',
 		dataDefinition: 'SPSCommentClassBase',
-		fragmentId: 'frag-to-delete-123',
+		fragmentId: 'frag/to delete-123',
 	};
 
-	it('sends a DELETE to /data/fragments/{ddname}/{fragmentId} with no body and an empty query string', async () => {
+	it('sends a DELETE to /data/fragments/{ddname}/{fragmentId} with both path segments encoded, no body and an empty query string', async () => {
 		const { mockThis, httpRequest } = createMockThis(params, undefined);
 
 		await deleteFragment.call(mockThis, 0);
 
 		expect(httpRequest).toHaveBeenCalledTimes(1);
-		const [credentialType, options] = httpRequest.mock.calls[0] as [string, object];
+		const [credentialType, options] = httpRequest.mock.calls[0] as [string, Record<string, unknown>];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toStrictEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'DELETE',
 			qs: {},
-			url: `${API_BASE}/data/fragments/SPSCommentClassBase/frag-to-delete-123`,
+			url: `${API_BASE}/data/fragments/SPSCommentClassBase/frag%2Fto%20delete-123`,
 			json: true,
 			skipSslCertificateValidation: false,
 		});
@@ -285,7 +396,7 @@ describe('deleteFragment', () => {
 });
 
 describe('addObject', () => {
-	const objectData = { Name: 'New Computer', 'Ud_Custom': 42 };
+	const objectData = { Name: 'New Computer', Ud_Custom: 42 };
 	const params = {
 		authentication: 'basic',
 		configurationItem: 'SPSComputerType',
@@ -300,19 +411,43 @@ describe('addObject', () => {
 		expect(httpRequest).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = httpRequest.mock.calls[0] as [
 			string,
-			{ body: object } & object,
+			{ body: object } & Record<string, unknown>,
 		];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toStrictEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
-			body: { Name: 'New Computer', 'Ud_Custom': 42 },
+			body: { Name: 'New Computer', Ud_Custom: 42 },
 			qs: {},
 			url: `${API_BASE}/data/objects/SPSComputerType`,
 			json: true,
 			skipSslCertificateValidation: false,
 		});
 		expect(options.body).toBe(objectData);
+	});
+
+	it('parses a JSON string objectData parameter into an object body', async () => {
+		const { mockThis, httpRequest } = createMockThis(
+			{ ...params, objectData: '{"Name":"Str","Value":7}' },
+			'id',
+		);
+
+		await addObject.call(mockThis, 0);
+
+		const [, options] = httpRequest.mock.calls[0] as [string, { body: object }];
+		expect(options.body).toStrictEqual({ Name: 'Str', Value: 7 });
+	});
+
+	it('encodeURIComponent-encodes the configuration item name in the path', async () => {
+		const { mockThis, httpRequest } = createMockThis(
+			{ ...params, configurationItem: 'CI Type/One' },
+			'id',
+		);
+
+		await addObject.call(mockThis, 0);
+
+		const [, options] = httpRequest.mock.calls[0] as [string, { url: string }];
+		expect(options.url).toBe(`${API_BASE}/data/objects/CI%20Type%2FOne`);
 	});
 
 	it('returns the API response wrapped as [{ objectId: response }]', async () => {
@@ -328,23 +463,23 @@ describe('getObject', () => {
 	const params = {
 		authentication: 'basic',
 		configurationItem: 'SPSComputerType',
-		objectId: 'obj-123',
+		objectId: 'obj 123/x',
 		full: true,
 	};
 
-	it('sends a GET to /data/objects/{ciname}/{objectId} with full in the query string and no body', async () => {
+	it('sends a GET to /data/objects/{ciname}/{objectId} with both path segments encoded, full in the query string and no body', async () => {
 		const { mockThis, httpRequest } = createMockThis(params, { ID: 'obj-123' });
 
 		await getObject.call(mockThis, 0);
 
 		expect(httpRequest).toHaveBeenCalledTimes(1);
-		const [credentialType, options] = httpRequest.mock.calls[0] as [string, object];
+		const [credentialType, options] = httpRequest.mock.calls[0] as [string, Record<string, unknown>];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toStrictEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'GET',
 			qs: { full: true },
-			url: `${API_BASE}/data/objects/SPSComputerType/obj-123`,
+			url: `${API_BASE}/data/objects/SPSComputerType/obj%20123%2Fx`,
 			json: true,
 			skipSslCertificateValidation: false,
 		});
@@ -385,7 +520,7 @@ describe('updateObject', () => {
 		await updateObject.call(mockThis, 0);
 
 		expect(httpRequest).toHaveBeenCalledTimes(1);
-		const [credentialType, options] = httpRequest.mock.calls[0] as [string, object];
+		const [credentialType, options] = httpRequest.mock.calls[0] as [string, Record<string, unknown>];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toStrictEqual({
 			headers: { 'Content-Type': 'application/json' },
@@ -420,7 +555,7 @@ describe('deleteObject', () => {
 		await deleteObject.call(mockThis, 0);
 
 		expect(httpRequest).toHaveBeenCalledTimes(1);
-		const [credentialType, options] = httpRequest.mock.calls[0] as [string, object];
+		const [credentialType, options] = httpRequest.mock.calls[0] as [string, Record<string, unknown>];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toStrictEqual({
 			headers: { 'Content-Type': 'application/json' },

@@ -1,16 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { IBinaryData, IDataObject, IExecuteFunctions } from 'n8n-workflow';
+import { type IDataObject, type IExecuteFunctions, NodeOperationError } from 'n8n-workflow';
 
 import { uploadFileToCI } from '../nodes/Matrix42/Matrix42StorageFunctions';
 
 const SERVER_URL = 'https://m42.example.com';
 const API_BASE = `${SERVER_URL}/m42Services/api`;
 
-// With Math.random mocked to always return 0.5, the hand-rolled uuidv4() in
-// GenericFunctions.ts deterministically produces this value:
-// r = (0.5 * 16) | 0 = 8; 'x' -> 8, 'y' -> (8 & 0x3) | 0x8 = 8.
-const FIXED_UUID = '88888888-8888-4888-8888-888888888888';
+// The current source generates its UniqueFileId with randomUUID() from
+// 'node:crypto', so the value is not deterministic. Tests read the actual
+// generated id out of the first upload request and assert it is a real v4 UUID
+// that is reused verbatim across the remaining calls.
+const V4_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const BASE_PARAMS: Record<string, unknown> = {
 	authentication: 'basic',
@@ -24,6 +25,7 @@ interface SetupOptions {
 	params?: Record<string, unknown>;
 	buffer?: Buffer;
 	typeIdResponse?: unknown;
+	credentials?: Record<string, unknown>;
 }
 
 function buildMockThis(options: SetupOptions = {}) {
@@ -31,6 +33,7 @@ function buildMockThis(options: SetupOptions = {}) {
 		params = {},
 		buffer = Buffer.from('binary-file-content'),
 		typeIdResponse = [{ typeId: 'type-123' }],
+		credentials = { serverUrl: SERVER_URL },
 	} = options;
 
 	const parameterMap: Record<string, unknown> = { ...BASE_PARAMS, ...params };
@@ -42,8 +45,17 @@ function buildMockThis(options: SetupOptions = {}) {
 	);
 	mockThis.getNodeParameter = getNodeParameter as unknown as IExecuteFunctions['getNodeParameter'];
 
-	const getCredentials = vi.fn().mockResolvedValue({ serverUrl: SERVER_URL });
+	const getCredentials = vi.fn().mockResolvedValue(credentials);
 	mockThis.getCredentials = getCredentials as unknown as IExecuteFunctions['getCredentials'];
+
+	mockThis.getNode = vi.fn().mockReturnValue({
+		id: 'test-node',
+		name: 'Matrix42',
+		type: 'n8n-nodes-matrix42.matrix42',
+		typeVersion: 2,
+		position: [0, 0],
+		parameters: {},
+	}) as unknown as IExecuteFunctions['getNode'];
 
 	// First request (GET typeId lookup) resolves with the fragment rows; every
 	// later request resolves with an ignored empty object.
@@ -54,7 +66,7 @@ function buildMockThis(options: SetupOptions = {}) {
 		data: '',
 		mimeType: 'application/pdf',
 		fileName: 'report.pdf',
-	} as IBinaryData);
+	});
 	const getBinaryDataBuffer = vi.fn().mockResolvedValue(buffer);
 
 	mockThis.helpers = {
@@ -74,13 +86,12 @@ function buildMockThis(options: SetupOptions = {}) {
 	};
 }
 
+/** Reads the UniqueFileId the source generated, out of the getuploadurl body. */
+function generatedUuid(httpMock: ReturnType<typeof vi.fn>): string {
+	return (httpMock.mock.calls[1][1] as { body: IDataObject }).body.UniqueFileId as string;
+}
+
 describe('uploadFileToCI', () => {
-	let randomSpy: ReturnType<typeof vi.spyOn>;
-
-	beforeEach(() => {
-		randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
-	});
-
 	afterEach(() => {
 		vi.restoreAllMocks();
 	});
@@ -98,9 +109,7 @@ describe('uploadFileToCI', () => {
 		// matrix42ApiRequest re-reads 'authentication' at index 0 for each of the
 		// four API calls (typeId lookup, getuploadurl, upload, finishUploading;
 		// no comment configured here).
-		expect(
-			getNodeParameter.mock.calls.filter((call) => call[0] === 'authentication'),
-		).toEqual([
+		expect(getNodeParameter.mock.calls.filter((call) => call[0] === 'authentication')).toEqual([
 			['authentication', 0],
 			['authentication', 0],
 			['authentication', 0],
@@ -124,7 +133,7 @@ describe('uploadFileToCI', () => {
 		);
 	});
 
-	it('first resolves the TypeId via GET /data/fragments/SPSCommonClassBase filtered by ObjectID', async () => {
+	it('first resolves the TypeId via GET /data/fragments/SPSCommonClassBase filtered by escaped ObjectID', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis();
 
 		await uploadFileToCI.call(mockThis, 0);
@@ -146,11 +155,26 @@ describe('uploadFileToCI', () => {
 		expect(requestOptions).not.toHaveProperty('body');
 	});
 
-	it('requests an upload URL with the file metadata, buffer size, and a generated v4 UUID', async () => {
+	it('escapes single quotes in the objectId with escapeAsqlString in the typeId where clause', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			params: { objectId: "o'brien" },
+		});
+
+		await uploadFileToCI.call(mockThis, 0);
+
+		const requestOptions = httpRequestWithAuthentication.mock.calls[0][1] as { qs: IDataObject };
+		// The single quote is doubled so it stays a literal inside the ASQL string.
+		expect(requestOptions.qs.where).toBe("[Expression-ObjectID] = 'o''brien'");
+	});
+
+	it('requests an upload URL with the file metadata, buffer size, and the generated v4 UUID', async () => {
 		const buffer = Buffer.from('0123456789');
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({ buffer });
 
 		await uploadFileToCI.call(mockThis, 0);
+
+		const uuid = generatedUuid(httpRequestWithAuthentication);
+		expect(uuid).toMatch(V4_UUID);
 
 		const [credentialType, requestOptions] = httpRequestWithAuthentication.mock.calls[1];
 		expect(credentialType).toBe('matrix42BasicApi');
@@ -162,7 +186,7 @@ describe('uploadFileToCI', () => {
 				StorageId: 'storage-1',
 				TypeId: 'type-123',
 				ObjectId: 'obj-1',
-				UniqueFileId: FIXED_UUID,
+				UniqueFileId: uuid,
 				Size: 10,
 			},
 			qs: {},
@@ -178,6 +202,7 @@ describe('uploadFileToCI', () => {
 
 		await uploadFileToCI.call(mockThis, 0);
 
+		const uuid = generatedUuid(httpRequestWithAuthentication);
 		const [credentialType, requestOptions] = httpRequestWithAuthentication.mock.calls[2];
 		expect(credentialType).toBe('matrix42BasicApi');
 		// The exact same Buffer instance is passed through as the request body;
@@ -187,7 +212,7 @@ describe('uploadFileToCI', () => {
 			headers: { 'Content-Type': 'application/octet-stream' },
 			method: 'POST',
 			body: buffer,
-			qs: { fileid: FIXED_UUID },
+			qs: { fileid: uuid },
 			url: `${API_BASE}/filestorage/upload`,
 			json: false,
 			skipSslCertificateValidation: false,
@@ -199,17 +224,19 @@ describe('uploadFileToCI', () => {
 
 		await uploadFileToCI.call(mockThis, 0);
 
+		const uuid = generatedUuid(httpRequestWithAuthentication);
 		const [credentialType, requestOptions] = httpRequestWithAuthentication.mock.calls[3];
 		expect(credentialType).toBe('matrix42BasicApi');
+		// The empty {} body has no keys, so matrix42ApiRequest omits the body property.
 		expect(requestOptions).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
-			body: {},
 			qs: {},
-			url: `${API_BASE}/commonStorage/finishUploading/${FIXED_UUID}`,
+			url: `${API_BASE}/commonStorage/finishUploading/${uuid}`,
 			json: true,
 			skipSslCertificateValidation: false,
 		});
+		expect(requestOptions).not.toHaveProperty('body');
 	});
 
 	it('performs the four requests in order: typeId lookup, getuploadurl, upload, finish', async () => {
@@ -218,6 +245,7 @@ describe('uploadFileToCI', () => {
 		await uploadFileToCI.call(mockThis, 0);
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(4);
+		const uuid = generatedUuid(httpRequestWithAuthentication);
 		const urls = httpRequestWithAuthentication.mock.calls.map(
 			(call) => (call[1] as { url: string }).url,
 		);
@@ -225,32 +253,26 @@ describe('uploadFileToCI', () => {
 			`${API_BASE}/data/fragments/SPSCommonClassBase`,
 			`${API_BASE}/filestorage/getuploadurl`,
 			`${API_BASE}/filestorage/upload`,
-			`${API_BASE}/commonStorage/finishUploading/${FIXED_UUID}`,
+			`${API_BASE}/commonStorage/finishUploading/${uuid}`,
 		]);
 	});
 
-	it('uses the hand-rolled uuidv4 (v4 shape) consistently across upload-url body, upload query, and finish URL', async () => {
-		// Use the real Math.random so we exercise the actual uuidv4 implementation.
-		randomSpy.mockRestore();
+	it('generates the UniqueFileId once and reuses the same v4 UUID across body, upload query, and finish URL', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis();
 
 		await uploadFileToCI.call(mockThis, 0);
 
-		const uploadUrlBody = (httpRequestWithAuthentication.mock.calls[1][1] as { body: IDataObject })
-			.body;
-		const uniqueFileId = uploadUrlBody.UniqueFileId as string;
-		expect(uniqueFileId).toMatch(
-			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-		);
+		const uuid = generatedUuid(httpRequestWithAuthentication);
+		expect(uuid).toMatch(V4_UUID);
 
 		const uploadOptions = httpRequestWithAuthentication.mock.calls[2][1] as { qs: IDataObject };
-		expect(uploadOptions.qs).toEqual({ fileid: uniqueFileId });
+		expect(uploadOptions.qs).toEqual({ fileid: uuid });
 
 		const finishOptions = httpRequestWithAuthentication.mock.calls[3][1] as { url: string };
-		expect(finishOptions.url).toBe(`${API_BASE}/commonStorage/finishUploading/${uniqueFileId}`);
+		expect(finishOptions.url).toBe(`${API_BASE}/commonStorage/finishUploading/${uuid}`);
 	});
 
-	it('posts the comment string as the request body when additionalFields.comment is set', async () => {
+	it('posts the comment JSON-encoded as the request body when additionalFields.comment is set', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 			params: { additionalFields: { comment: 'uploaded by n8n' } },
 		});
@@ -258,18 +280,20 @@ describe('uploadFileToCI', () => {
 		await uploadFileToCI.call(mockThis, 0);
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(5);
+		const uuid = generatedUuid(httpRequestWithAuthentication);
 		const [credentialType, requestOptions] = httpRequestWithAuthentication.mock.calls[4];
 		expect(credentialType).toBe('matrix42BasicApi');
 		expect(requestOptions).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
-			// The raw comment string (not an object wrapper) is used as the body.
-			body: 'uploaded by n8n',
+			// The comment is JSON.stringify'd, so the body is the quoted string.
+			body: JSON.stringify('uploaded by n8n'),
 			qs: {},
-			url: `${API_BASE}/filestorage/comment/${FIXED_UUID}`,
+			url: `${API_BASE}/filestorage/comment/${uuid}`,
 			json: true,
 			skipSslCertificateValidation: false,
 		});
+		expect((requestOptions as { body: string }).body).toBe('"uploaded by n8n"');
 	});
 
 	it('skips the comment request when additionalFields is not set (fallback {})', async () => {
@@ -316,33 +340,43 @@ describe('uploadFileToCI', () => {
 		}
 	});
 
-	it('still uploads with TypeId undefined when the fragment lookup returns no rows (current behavior)', async () => {
-		const { mockThis, httpRequestWithAuthentication } = buildMockThis({ typeIdResponse: [] });
-
-		await uploadFileToCI.call(mockThis, 0);
-
-		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(4);
-		const uploadUrlBody = (httpRequestWithAuthentication.mock.calls[1][1] as { body: IDataObject })
-			.body;
-		expect(Object.keys(uploadUrlBody)).toContain('TypeId');
-		expect(uploadUrlBody.TypeId).toBeUndefined();
-	});
-
-	it('interpolates the objectId verbatim into the where clause of the typeId lookup', async () => {
+	it('sets skipSslCertificateValidation from the credential allowUnauthorizedCerts flag', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			params: { objectId: "o'brien" },
+			credentials: { serverUrl: SERVER_URL, allowUnauthorizedCerts: true },
 		});
 
 		await uploadFileToCI.call(mockThis, 0);
 
-		const requestOptions = httpRequestWithAuthentication.mock.calls[0][1] as { qs: IDataObject };
-		// Characterization: the objectId is embedded without any escaping, so a
-		// single quote in the value breaks (or injects into) the where expression.
-		expect(requestOptions.qs.where).toBe("[Expression-ObjectID] = 'o'brien'");
+		for (const call of httpRequestWithAuthentication.mock.calls) {
+			expect((call[1] as { skipSslCertificateValidation: boolean }).skipSslCertificateValidation).toBe(
+				true,
+			);
+		}
 	});
 
-	// The typeId lookup response is not validated: if the object does not exist,
-	// the function silently proceeds and sends TypeId: undefined (which JSON
-	// serialization drops) instead of failing with a clear error.
-	test.todo('should throw a descriptive error when no CI is found for the given objectId');
+	it('throws a NodeOperationError and stops before uploading when the fragment lookup returns no rows', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({ typeIdResponse: [] });
+
+		await expect(uploadFileToCI.call(mockThis, 0)).rejects.toBeInstanceOf(NodeOperationError);
+
+		// Only the typeId lookup ran; no upload URL / upload / finish requests.
+		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
+	});
+
+	it('reports the offending objectId in the missing-CI error message', async () => {
+		const { mockThis } = buildMockThis({ typeIdResponse: [], params: { objectId: 'missing-obj' } });
+
+		await expect(uploadFileToCI.call(mockThis, 0)).rejects.toThrow(
+			'No configuration item was found for Object ID "missing-obj"',
+		);
+	});
+
+	it('throws when the fragment row is present but its typeId is empty', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			typeIdResponse: [{ typeId: '' }],
+		});
+
+		await expect(uploadFileToCI.call(mockThis, 0)).rejects.toBeInstanceOf(NodeOperationError);
+		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
+	});
 });

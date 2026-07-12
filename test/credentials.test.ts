@@ -1,7 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { mock } from 'vitest-mock-extended';
+import type { ICredentialDataDecryptedObject, IHttpRequestHelper } from 'n8n-workflow';
 
 import { Matrix42TokenApi } from '../credentials/Matrix42TokenApi.credentials';
 import { Matrix42BasicApi } from '../credentials/Matrix42BasicApi.credentials';
+
+const DOCUMENTATION_URL =
+	'https://docs.matrix42.com/1074558_web-services/3463380_web-services-authentication-types';
+const FRAGMENTS_TEST_URL = '/m42Services/api/data/fragments/SPSGlobalConfigurationClassBase';
+// The source strips trailing slashes with the literal regex /\/+$/ written as /\\/+$/ inside a
+// single-quoted TS string, so the runtime baseURL expression contains a single backslash.
+const BASE_URL_EXPRESSION = '={{$credentials.serverUrl.replace(/\\/+$/, "")}}';
 
 describe('Matrix42TokenApi credential', () => {
 	const credential = new Matrix42TokenApi();
@@ -16,23 +25,26 @@ describe('Matrix42TokenApi credential', () => {
 		});
 
 		it('should have the correct documentationUrl', () => {
-			expect(credential.documentationUrl).toBe(
-				'https://help.matrix42.com/030_ESMP/030_INT/Business_Processes_and_API_Integrations/Web_Services%3A_Authentication_types',
-			);
+			expect(credential.documentationUrl).toBe(DOCUMENTATION_URL);
+		});
+
+		it('should use the matrix42.svg icon', () => {
+			expect(credential.icon).toBe('file:matrix42.svg');
 		});
 
 		it('should not extend any other credential type', () => {
-			expect(
-				(credential as unknown as { extends?: string[] }).extends,
-			).toBeUndefined();
+			expect((credential as unknown as { extends?: string[] }).extends).toBeUndefined();
 		});
 	});
 
 	describe('properties', () => {
-		it('should define exactly two properties in order: serverUrl, webserviceToken', () => {
+		it('should define exactly five properties in order', () => {
 			expect(credential.properties.map((p) => p.name)).toEqual([
 				'serverUrl',
 				'webserviceToken',
+				'allowUnauthorizedCerts',
+				'explicitLanguage',
+				'accessToken',
 			]);
 		});
 
@@ -43,7 +55,8 @@ describe('Matrix42TokenApi credential', () => {
 				name: 'serverUrl',
 				type: 'string',
 				default: '',
-				hint: 'The URL of the Matrix42 server. (https://www.example-matrix42.com)',
+				placeholder: 'e.g. https://matrix42.example.com',
+				hint: 'The base URL of the Matrix42 server',
 				required: true,
 			});
 		});
@@ -58,8 +71,39 @@ describe('Matrix42TokenApi credential', () => {
 					password: true,
 				},
 				default: '',
-				hint: 'The Webservice token of the Matrix42 server.',
+				hint: 'The API Token generated in Matrix42. It is exchanged for a short-lived access token on each run',
 				required: true,
+			});
+		});
+
+		it('should define allowUnauthorizedCerts as a boolean defaulting to false', () => {
+			const allow = credential.properties.find((p) => p.name === 'allowUnauthorizedCerts');
+			expect(allow).toEqual({
+				displayName: 'Ignore SSL Issues (Insecure)',
+				name: 'allowUnauthorizedCerts',
+				type: 'boolean',
+				default: false,
+				description:
+					'Whether to connect even if SSL certificate validation is not possible, e.g. when the Matrix42 server uses a self-signed certificate',
+			});
+		});
+
+		it('should define explicitLanguage as an optional string defaulting to empty', () => {
+			const lang = credential.properties.find((p) => p.name === 'explicitLanguage');
+			expect(lang?.type).toBe('string');
+			expect(lang?.default).toBe('');
+		});
+
+		it('should define accessToken as a hidden expirable field', () => {
+			const accessToken = credential.properties.find((p) => p.name === 'accessToken');
+			expect(accessToken).toEqual({
+				displayName: 'Access Token',
+				name: 'accessToken',
+				type: 'hidden',
+				typeOptions: {
+					expirable: true,
+				},
+				default: '',
 			});
 		});
 	});
@@ -69,28 +113,86 @@ describe('Matrix42TokenApi credential', () => {
 			expect(credential.authenticate.type).toBe('generic');
 		});
 
-		it('should set a Bearer Authorization header expression from the webservice token', () => {
+		it('should set a Bearer Authorization header from the access token', () => {
 			expect(credential.authenticate.properties).toEqual({
 				headers: {
-					Authorization: '=Bearer {{$credentials.webserviceToken}}',
+					Authorization: '=Bearer {{$credentials.accessToken}}',
 				},
 			});
 		});
 	});
 
 	describe('test request', () => {
-		it('should use the credential serverUrl expression as baseURL', () => {
-			expect(credential.test.request.baseURL).toBe('={{$credentials?.serverUrl}}');
+		it('should use the trailing-slash-stripped serverUrl expression as baseURL', () => {
+			expect(credential.test.request.baseURL).toBe(BASE_URL_EXPRESSION);
 		});
 
 		it('should target the SPSGlobalConfigurationClassBase fragments endpoint', () => {
-			expect(credential.test.request.url).toBe(
-				'/m42Services/api/data/fragments/SPSGlobalConfigurationClassBase',
-			);
+			expect(credential.test.request.url).toBe(FRAGMENTS_TEST_URL);
 		});
 
-		it('should not skip SSL certificate validation', () => {
-			expect(credential.test.request.skipSslCertificateValidation).toBe(false);
+		it('should request a single row via pagesize qs', () => {
+			expect(credential.test.request.qs).toEqual({ pagesize: 1 });
+		});
+
+		it('should skip SSL validation based on the allowUnauthorizedCerts expression', () => {
+			expect(credential.test.request.skipSslCertificateValidation).toBe(
+				'={{$credentials.allowUnauthorizedCerts}}',
+			);
+		});
+	});
+
+	describe('preAuthentication', () => {
+		it('should exchange the webservice token for an access token', async () => {
+			const mockThis = mock<IHttpRequestHelper>();
+			mockThis.helpers.httpRequest = vi.fn().mockResolvedValue({ RawToken: 'x' });
+
+			const credentials: ICredentialDataDecryptedObject = {
+				serverUrl: 'https://matrix42.example.com/',
+				webserviceToken: 'my-webservice-token',
+				allowUnauthorizedCerts: true,
+			};
+
+			const result = await credential.preAuthentication!.call(mockThis, credentials);
+
+			expect(result).toEqual({ accessToken: 'x' });
+			expect(mockThis.helpers.httpRequest).toHaveBeenCalledTimes(1);
+			expect(mockThis.helpers.httpRequest).toHaveBeenCalledWith({
+				method: 'POST',
+				url: 'https://matrix42.example.com/m42Services/api/ApiToken/GenerateAccessTokenFromApiToken',
+				skipSslCertificateValidation: true,
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: 'Bearer my-webservice-token',
+				},
+				body: {},
+				json: true,
+			});
+		});
+
+		it('should not skip SSL when allowUnauthorizedCerts is not exactly true and keep the untrimmed host', async () => {
+			const mockThis = mock<IHttpRequestHelper>();
+			mockThis.helpers.httpRequest = vi.fn().mockResolvedValue({ RawToken: 'another-token' });
+
+			const credentials: ICredentialDataDecryptedObject = {
+				serverUrl: 'https://matrix42.example.com',
+				webserviceToken: 'token-2',
+			};
+
+			const result = await credential.preAuthentication!.call(mockThis, credentials);
+
+			expect(result).toEqual({ accessToken: 'another-token' });
+			expect(mockThis.helpers.httpRequest).toHaveBeenCalledWith({
+				method: 'POST',
+				url: 'https://matrix42.example.com/m42Services/api/ApiToken/GenerateAccessTokenFromApiToken',
+				skipSslCertificateValidation: false,
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: 'Bearer token-2',
+				},
+				body: {},
+				json: true,
+			});
 		});
 	});
 });
@@ -108,9 +210,11 @@ describe('Matrix42BasicApi credential', () => {
 		});
 
 		it('should have the correct documentationUrl', () => {
-			expect(credential.documentationUrl).toBe(
-				'https://help.matrix42.com/030_ESMP/030_INT/Business_Processes_and_API_Integrations/Web_Services%3A_Authentication_types',
-			);
+			expect(credential.documentationUrl).toBe(DOCUMENTATION_URL);
+		});
+
+		it('should use the matrix42.svg icon', () => {
+			expect(credential.icon).toBe('file:matrix42.svg');
 		});
 
 		it('should extend httpBasicAuth', () => {
@@ -119,11 +223,13 @@ describe('Matrix42BasicApi credential', () => {
 	});
 
 	describe('properties', () => {
-		it('should define exactly three properties in order: serverUrl, user, password', () => {
+		it('should define exactly five properties in order', () => {
 			expect(credential.properties.map((p) => p.name)).toEqual([
 				'serverUrl',
 				'user',
 				'password',
+				'allowUnauthorizedCerts',
+				'explicitLanguage',
 			]);
 		});
 
@@ -134,7 +240,8 @@ describe('Matrix42BasicApi credential', () => {
 				name: 'serverUrl',
 				type: 'string',
 				default: '',
-				hint: 'The URL of the Matrix42 server. (https://www.example-matrix42.com)',
+				placeholder: 'e.g. https://matrix42.example.com',
+				hint: 'The base URL of the Matrix42 server',
 				required: true,
 			});
 		});
@@ -163,6 +270,18 @@ describe('Matrix42BasicApi credential', () => {
 				default: '',
 			});
 		});
+
+		it('should define allowUnauthorizedCerts as a boolean defaulting to false', () => {
+			const allow = credential.properties.find((p) => p.name === 'allowUnauthorizedCerts');
+			expect(allow).toEqual({
+				displayName: 'Ignore SSL Issues (Insecure)',
+				name: 'allowUnauthorizedCerts',
+				type: 'boolean',
+				default: false,
+				description:
+					'Whether to connect even if SSL certificate validation is not possible, e.g. when the Matrix42 server uses a self-signed certificate',
+			});
+		});
 	});
 
 	describe('authenticate', () => {
@@ -181,18 +300,22 @@ describe('Matrix42BasicApi credential', () => {
 	});
 
 	describe('test request', () => {
-		it('should use the credential serverUrl expression as baseURL', () => {
-			expect(credential.test.request.baseURL).toBe('={{$credentials?.serverUrl}}');
+		it('should use the trailing-slash-stripped serverUrl expression as baseURL', () => {
+			expect(credential.test.request.baseURL).toBe(BASE_URL_EXPRESSION);
 		});
 
 		it('should target the SPSGlobalConfigurationClassBase fragments endpoint', () => {
-			expect(credential.test.request.url).toBe(
-				'/m42Services/api/data/fragments/SPSGlobalConfigurationClassBase',
-			);
+			expect(credential.test.request.url).toBe(FRAGMENTS_TEST_URL);
 		});
 
-		it('should not skip SSL certificate validation', () => {
-			expect(credential.test.request.skipSslCertificateValidation).toBe(false);
+		it('should request a single row via pagesize qs', () => {
+			expect(credential.test.request.qs).toEqual({ pagesize: 1 });
+		});
+
+		it('should skip SSL validation based on the allowUnauthorizedCerts expression', () => {
+			expect(credential.test.request.skipSslCertificateValidation).toBe(
+				'={{$credentials.allowUnauthorizedCerts}}',
+			);
 		});
 	});
 });

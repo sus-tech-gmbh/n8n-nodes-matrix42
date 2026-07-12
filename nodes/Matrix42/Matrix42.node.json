@@ -1,0 +1,18 @@
+{
+	"node": "n8n-nodes-matrix42.matrix42",
+	"nodeVersion": "2.0",
+	"codexVersion": "1.0",
+	"categories": ["Development", "Miscellaneous"],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://docs.matrix42.com/1074558_web-services/3463380_web-services-authentication-types"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://docs.matrix42.com/1067929_public-api-reference-documentation"
+			}
+		]
+	}
+}
