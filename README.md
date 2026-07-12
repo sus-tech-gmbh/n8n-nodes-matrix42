@@ -99,11 +99,11 @@ On execution, the node:
 
 ## Compatibility
 
--   **n8n**: Node API version 1; built and tested against `n8n-workflow` 2.x. Requires n8n 1.85 or later (uses `NodeConnectionTypes`).
+-   **n8n**: Node API version 1; built and tested against `n8n-workflow` 2.x. Requires n8n 1.85 or later (uses `NodeConnectionTypes`). Last tested with n8n 2.2.3.
 
 -   **Node.js**: v22 or higher.
 
--   **Matrix42 ESMP API**: Tested against Matrix42 12.x.
+-   **Matrix42 ESMP API**: Last tested against Matrix42 26.1.0.1390.
 
 ## Resources
 
