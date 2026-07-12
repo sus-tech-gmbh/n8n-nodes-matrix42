@@ -1,0 +1,38 @@
+name: Publish to npm
+
+# Publishes the package to npm with provenance when a GitHub Release is published.
+# This links the npm package to this repository + commit (green "provenance" badge on npmjs)
+# and satisfies n8n's verified-community-nodes publishing requirement.
+#
+# One-time setup on npmjs.com (no token needed — uses OIDC "Trusted Publishing"):
+#   npm package "n8n-nodes-matrix42" -> Settings -> Trusted Publisher -> add GitHub Actions:
+#     Organization/User: sus-tech-gmbh
+#     Repository:        n8n-nodes-matrix42
+#     Workflow filename: publish.yml
+# (Alternatively, delete the trusted-publisher note and add a classic automation token as the
+#  NPM_TOKEN repo secret, then set `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` on the publish step.)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance / OIDC trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # Trusted Publishing (OIDC) needs a recent npm (>= 11.5.1)
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm publish --provenance --access public
