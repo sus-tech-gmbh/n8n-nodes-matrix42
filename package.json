@@ -14,7 +14,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/S-S-Technologies-GmbH/n8n-nodes-matrix42"
+    "url": "git+https://github.com/sus-tech-gmbh/n8n-nodes-matrix42.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sus-tech-gmbh/n8n-nodes-matrix42/issues"
   },
   "engines": {
     "node": ">=22"
