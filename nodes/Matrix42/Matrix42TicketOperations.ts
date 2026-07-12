@@ -243,6 +243,40 @@ const createTicketOperation: INodeProperties[] = [
 					'The creator of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 			{
+				displayName: 'Extra Properties',
+				name: 'extraProperties',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				default: {},
+				placeholder: 'Add Property',
+				description:
+					'Set arbitrary ticket attributes as name/value pairs, e.g. a custom attribute of the ticket type or a field like Solution',
+				options: [
+					{
+						displayName: 'Property',
+						name: 'property',
+						values: [
+							{
+								displayName: 'Name',
+								name: 'name',
+								type: 'string',
+								default: '',
+								description: 'Technical name of the ticket attribute',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description: 'Value to set on the attribute',
+							},
+						],
+					},
+				],
+			},
+			{
 				displayName: 'Initiator Name or ID',
 				name: 'user',
 				type: 'options',

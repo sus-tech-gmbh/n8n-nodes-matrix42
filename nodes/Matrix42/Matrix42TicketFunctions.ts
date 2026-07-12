@@ -50,12 +50,14 @@ export async function createTicket(this: IExecuteFunctions, i: number) {
 		user?: string;
 		responsibleUser?: string;
 		sla?: string;
+		extraProperties?: { property?: Array<{ name?: string; value?: string }> };
 	};
 	const responsibleRole = additionalFields.responsibleRole;
 	const creator = additionalFields.creator;
 	const user = additionalFields.user;
 	const responsibleUser = additionalFields.responsibleUser;
 	const sla = additionalFields.sla;
+	const extraProperties = additionalFields.extraProperties?.property;
 
 	let priority = this.getNodeParameter('priority', i) as number;
 
@@ -101,6 +103,13 @@ export async function createTicket(this: IExecuteFunctions, i: number) {
 	if (!isBlankRelation(creator)) body.Creator = creator;
 	if (!isBlankRelation(user)) body.User = user;
 	if (!isBlankRelation(sla)) body.Sla = sla;
+
+	// Arbitrary custom attributes as Name/Value pairs.
+	if (Array.isArray(extraProperties) && extraProperties.length > 0) {
+		body.ExtraProperties = extraProperties
+			.filter((p) => p.name)
+			.map((p) => ({ Name: p.name, Value: p.value }));
+	}
 
 	const response = await matrix42ApiRequest.call(this, 'POST', '/ticket/create', body, qs);
 

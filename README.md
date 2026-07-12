@@ -117,7 +117,7 @@ On execution, the node:
 - Token auth now performs the documented API‑token → access‑token exchange
 - Added an **Ignore SSL Issues (Insecure)** toggle to both credentials.
 - Added a **Data Query** resource with **Get Data** (POST-based, paged, with Return All and a structured **User Filters** body).
-- Ticket **Create** gained a selectable **State** field (loaded from the instance's activity states; defaults to New/200).
+- Ticket **Create** gained a selectable **State** field (loaded from the instance's activity states; defaults to New/200) and an **Extra Properties** collection for setting arbitrary/custom ticket attributes as name/value pairs.
 - Added an optional **Response Language** credential field, sent as the `Explicit-Language` header on every request.
 - `Get Many` (fragments) gained **Return All / Limit** paging.
 

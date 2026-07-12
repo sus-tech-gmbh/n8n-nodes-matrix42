@@ -317,6 +317,42 @@ describe('createTicket', () => {
 			expect(body.User).toBe('user-guid');
 		});
 	});
+
+	describe('extraProperties', () => {
+		it('maps the extra-properties collection to an ExtraProperties Name/Value array', async () => {
+			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+				...baseParams,
+				additionalFields: {
+					extraProperties: {
+						property: [
+							{ name: 'Solution', value: 'done' },
+							{ name: 'Callback', value: '555' },
+						],
+					},
+				},
+			});
+
+			await createTicket.call(mockThis, 0);
+
+			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
+			expect(body.ExtraProperties).toEqual([
+				{ Name: 'Solution', Value: 'done' },
+				{ Name: 'Callback', Value: '555' },
+			]);
+		});
+
+		it('drops entries without a name and omits ExtraProperties when none are given', async () => {
+			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+				...baseParams,
+				additionalFields: { extraProperties: { property: [{ name: '', value: 'x' }] } },
+			});
+
+			await createTicket.call(mockThis, 0);
+
+			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
+			expect(body.ExtraProperties).toEqual([]);
+		});
+	});
 });
 
 // ---------------------------------------------------------------------------
