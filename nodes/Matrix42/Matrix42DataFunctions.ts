@@ -1,5 +1,18 @@
-import {type IDataObject, type IExecuteFunctions} from "n8n-workflow";
-import {matrix42ApiRequest} from "./GenericFunctions";
+import { type IDataObject, type IExecuteFunctions, jsonParse } from 'n8n-workflow';
+import { matrix42ApiRequest } from './GenericFunctions';
+
+/** Parses a `type: 'json'` node parameter that may arrive as a string or an already-resolved object. */
+function parseJsonParameter(value: unknown, parameterName: string): IDataObject {
+	if (value === undefined || value === null || value === '') {
+		return {};
+	}
+	if (typeof value === 'object') {
+		return value as IDataObject;
+	}
+	return jsonParse<IDataObject>(value as string, {
+		errorMessage: `The "${parameterName}" parameter does not contain valid JSON`,
+	});
+}
 
 export async function getFragments(this: IExecuteFunctions, i: number) {
 	const returnData: IDataObject[] = [];
@@ -7,10 +20,9 @@ export async function getFragments(this: IExecuteFunctions, i: number) {
 	const ddname = this.getNodeParameter('dataDefinition', i) as string;
 	const where = this.getNodeParameter('where', i) as string;
 	const columns = this.getNodeParameter('columns', i) as string;
+	const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
 
 	const additionalFields = this.getNodeParameter('additionalFields', i, {}) as {
-		pageSize?: number;
-		pageNumber?: number;
 		sort?: string;
 	};
 
@@ -18,24 +30,34 @@ export async function getFragments(this: IExecuteFunctions, i: number) {
 		where,
 		columns,
 	};
-
-	if (additionalFields.pageSize !== undefined) {
-		qs.pagesize = additionalFields.pageSize;
-	}
-	if (additionalFields.pageNumber !== undefined) {
-		qs.pagenumber = additionalFields.pageNumber;
-	}
 	if (additionalFields.sort) {
 		qs.sort = additionalFields.sort;
 	}
 
-	const response = await matrix42ApiRequest.call(
-		this,
-		'GET',
-		`/data/fragments/${ddname}`,
-		{},
-		qs,
-	);
+	const endpoint = `/data/fragments/${encodeURIComponent(ddname)}` as const;
+
+	if (returnAll) {
+		const pageSize = 500;
+		let pageNumber = 0;
+		let received = 0;
+		do {
+			const page = (await matrix42ApiRequest.call(this, 'GET', endpoint, {}, {
+				...qs,
+				pagesize: pageSize,
+				pagenumber: pageNumber,
+			})) as IDataObject[];
+			const rows = Array.isArray(page) ? page : [page];
+			returnData.push(...rows);
+			received = rows.length;
+			pageNumber += 1;
+		} while (received === pageSize);
+		return returnData;
+	}
+
+	const limit = this.getNodeParameter('limit', i, 50) as number;
+	qs.pagesize = limit;
+
+	const response = await matrix42ApiRequest.call(this, 'GET', endpoint, {}, qs);
 
 	if (Array.isArray(response)) {
 		returnData.push(...response);
@@ -50,34 +72,34 @@ export async function addFragment(this: IExecuteFunctions, i: number) {
 	const returnData: IDataObject[] = [];
 
 	const ddname = this.getNodeParameter('dataDefinition', i) as string;
-	const fragmentData = this.getNodeParameter('fragmentData', i) as object;
+	const fragmentData = parseJsonParameter(this.getNodeParameter('fragmentData', i), 'Fragment Data');
 
 	const response = await matrix42ApiRequest.call(
 		this,
 		'POST',
-		`/data/fragments/${ddname}`,
+		`/data/fragments/${encodeURIComponent(ddname)}`,
 		fragmentData,
 		{},
 	);
 
-	returnData.push({ "fragmentId": response } as IDataObject);
+	returnData.push({ fragmentId: response } as IDataObject);
 
 	return returnData;
 }
 
 export async function updateFragment(this: IExecuteFunctions, i: number) {
 	const ddname = this.getNodeParameter('dataDefinition', i) as string;
-	const fragmentData = this.getNodeParameter('fragmentData', i) as object;
+	const fragmentData = parseJsonParameter(this.getNodeParameter('fragmentData', i), 'Fragment Data');
 
 	await matrix42ApiRequest.call(
 		this,
 		'PUT',
-		`/data/fragments/${ddname}`,
+		`/data/fragments/${encodeURIComponent(ddname)}`,
 		fragmentData,
 		{},
 	);
 
-	return [{"Message": "Success"}];
+	return [{ Message: 'Success' }];
 }
 
 export async function deleteFragment(this: IExecuteFunctions, i: number) {
@@ -87,29 +109,29 @@ export async function deleteFragment(this: IExecuteFunctions, i: number) {
 	await matrix42ApiRequest.call(
 		this,
 		'DELETE',
-		`/data/fragments/${ddname}/${fragmentId}`,
+		`/data/fragments/${encodeURIComponent(ddname)}/${encodeURIComponent(fragmentId)}`,
 		{},
 		{},
 	);
 
-	return [{"Message": "Success"}];
+	return [{ Message: 'Success' }];
 }
 
 export async function addObject(this: IExecuteFunctions, i: number) {
 	const returnData: IDataObject[] = [];
 
 	const ciname = this.getNodeParameter('configurationItem', i) as string;
-	const objectData = this.getNodeParameter('objectData', i) as object;
+	const objectData = parseJsonParameter(this.getNodeParameter('objectData', i), 'Object Data');
 
 	const response = await matrix42ApiRequest.call(
 		this,
 		'POST',
-		`/data/objects/${ciname}`,
+		`/data/objects/${encodeURIComponent(ciname)}`,
 		objectData,
 		{},
 	);
 
-	returnData.push({ "objectId": response } as IDataObject);
+	returnData.push({ objectId: response } as IDataObject);
 
 	return returnData;
 }
@@ -118,17 +140,17 @@ export async function getObject(this: IExecuteFunctions, i: number) {
 	const returnData: IDataObject[] = [];
 
 	const ciname = this.getNodeParameter('configurationItem', i) as string;
-	const objectId = this.getNodeParameter('objectId', i) as object;
+	const objectId = this.getNodeParameter('objectId', i) as string;
 	const full = this.getNodeParameter('full', i) as boolean;
 
 	const qs: IDataObject = {
-		full
+		full,
 	};
 
 	const response = await matrix42ApiRequest.call(
 		this,
 		'GET',
-		`/data/objects/${ciname}/${objectId}`,
+		`/data/objects/${encodeURIComponent(ciname)}/${encodeURIComponent(objectId)}`,
 		{},
 		qs,
 	);
@@ -140,35 +162,35 @@ export async function getObject(this: IExecuteFunctions, i: number) {
 
 export async function updateObject(this: IExecuteFunctions, i: number) {
 	const ciname = this.getNodeParameter('configurationItem', i) as string;
-	const objectData = this.getNodeParameter('objectData', i) as object;
+	const objectData = parseJsonParameter(this.getNodeParameter('objectData', i), 'Object Data');
 	const full = this.getNodeParameter('full', i) as boolean;
 
 	const qs: IDataObject = {
-		full
+		full,
 	};
 
 	await matrix42ApiRequest.call(
 		this,
 		'PUT',
-		`/data/objects/${ciname}`,
+		`/data/objects/${encodeURIComponent(ciname)}`,
 		objectData,
 		qs,
 	);
 
-	return [{"Message": "Success"}];
+	return [{ Message: 'Success' }];
 }
 
 export async function deleteObject(this: IExecuteFunctions, i: number) {
 	const ciname = this.getNodeParameter('configurationItem', i) as string;
-	const objectId = this.getNodeParameter('objectId', i) as object;
+	const objectId = this.getNodeParameter('objectId', i) as string;
 
 	await matrix42ApiRequest.call(
 		this,
 		'DELETE',
-		`/data/objects/${ciname}/${objectId}`,
+		`/data/objects/${encodeURIComponent(ciname)}/${encodeURIComponent(objectId)}`,
 		{},
 		{},
 	);
 
-	return [{"Message": "Success"}];
+	return [{ Message: 'Success' }];
 }

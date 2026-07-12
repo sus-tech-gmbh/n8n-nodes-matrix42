@@ -1,4 +1,4 @@
-import {INodeProperties} from "n8n-workflow";
+import type { INodeProperties } from 'n8n-workflow';
 
 export const matrix42TicketOperations: INodeProperties[] = [
 	{
@@ -11,34 +11,33 @@ export const matrix42TicketOperations: INodeProperties[] = [
 				resource: ['ticket'],
 			},
 		},
-		// eslint-disable-next-line n8n-nodes-base/node-param-options-type-unsorted-items
 		options: [
 			{
-				name: 'Create Ticket',
-				value: 'createTicket',
+				name: 'Add Journal Entry',
+				value: 'addJournalEntry',
+				description: 'Add a journal entry to a ticket',
+				action: 'Add a journal entry',
+			},
+			{
+				name: 'Close',
+				value: 'close',
+				description: 'Close a ticket',
+				action: 'Close a ticket',
+			},
+			{
+				name: 'Create',
+				value: 'create',
 				description: 'Create a ticket',
 				action: 'Create a ticket',
 			},
 			{
-				name: 'Close Ticket',
-				value: 'closeTicket',
-				description: 'Close a ticket',
-				action: 'Close ticket',
-			},
-			{
-				name: 'Transform Ticket',
-				value: 'transformTicket',
-				description: 'Transform a ticket',
+				name: 'Transform',
+				value: 'transform',
+				description: 'Transform a ticket into another type',
 				action: 'Transform a ticket',
 			},
-			{
-				name: 'Add Journal Entry',
-				value: 'addJournalEntry',
-				description: 'Add a journal entry',
-				action: 'Add a journal entry',
-			}
 		],
-		default: 'createTicket',
+		default: 'create',
 	},
 ];
 
@@ -47,6 +46,7 @@ const createTicketOperation: INodeProperties[] = [
 		displayName: 'Ticket Type',
 		name: 'ticketType',
 		type: 'options',
+		// eslint-disable-next-line n8n-nodes-base/node-param-options-type-unsorted-items
 		options: [
 			{
 				name: 'Ticket',
@@ -59,13 +59,14 @@ const createTicketOperation: INodeProperties[] = [
 			{
 				name: 'Incident',
 				value: 0,
-			}
+			},
 		],
 		default: 5,
-		description: 'The type of the Ticket',
+		description: 'The type of the ticket',
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
 		required: true,
@@ -78,10 +79,12 @@ const createTicketOperation: INodeProperties[] = [
 			loadOptionsMethod: 'getTicketCategories',
 		},
 		default: '',
-		description: 'The Category of the Ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		description:
+			'The category of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
 		required: true,
@@ -91,10 +94,11 @@ const createTicketOperation: INodeProperties[] = [
 		name: 'subject',
 		type: 'string',
 		default: '',
-		description: 'The Subject of the Ticket',
+		description: 'The subject of the ticket',
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
 		required: true,
@@ -107,10 +111,11 @@ const createTicketOperation: INodeProperties[] = [
 			editor: 'htmlEditor',
 		},
 		default: '',
-		description: 'The Description of the Ticket (HTML)',
+		description: 'The description of the ticket, as HTML',
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
 		required: true,
@@ -123,10 +128,12 @@ const createTicketOperation: INodeProperties[] = [
 			loadOptionsMethod: 'getTicketImpacts',
 		},
 		default: '',
-		description: 'The Impact of the Ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		description:
+			'The impact of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
 		required: true,
@@ -139,10 +146,12 @@ const createTicketOperation: INodeProperties[] = [
 			loadOptionsMethod: 'getTicketUrgencies',
 		},
 		default: '',
-		description: 'The Urgency of the Ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		description:
+			'The urgency of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
 		required: true,
@@ -156,131 +165,177 @@ const createTicketOperation: INodeProperties[] = [
 			{
 				name: 'Auto',
 				value: -1,
-				description: 'Calculate Priority'
+				description: 'Calculate the priority from impact and urgency',
 			},
 			{
 				name: 'Without',
 				value: 0,
-				description: 'Without Priority'
 			},
 			{
 				name: 'Low',
 				value: 1,
-				description: 'Low Priority'
 			},
 			{
 				name: 'Medium',
 				value: 2,
-				description: 'Medium Priority'
 			},
 			{
 				name: 'High',
 				value: 3,
-				description: 'High Priority'
 			},
 		],
 		default: -1,
-		description: 'The Priority of the Ticket. It can be automatically calculated based on the urgency and impact.',
+		description: 'The priority of the ticket. It can be calculated automatically from the urgency and impact.',
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
 		required: true,
 	},
 	{
-		displayName: 'Responsible Role Name or ID',
-		name: 'responsibleRole',
+		displayName: 'State Name or ID',
+		name: 'state',
 		type: 'options',
+		options: [
+			{
+				name: 'New',
+				value: 200,
+			},
+		],
 		typeOptions: {
-			loadOptionsMethod: 'getTicketRoles',
-			loadOptionsDependsOn: ['category'],
+			loadOptionsMethod: 'getActivityStates',
 		},
-		default: '',
-		description: 'The Responsible Role of the Ticket. If "None" is selected, the Category default will be used. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		default: 200,
+		description:
+			'The initial state of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
 		required: true,
 	},
 	{
-		displayName: 'Creator Name or ID',
-		name: 'creator',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getUsers',
-		},
-		default: '',
-		description: 'The Creator of the Ticket. If "None" is selected, it will be left blank. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		displayName: 'Additional Fields',
+		name: 'additionalFields',
+		type: 'collection',
+		placeholder: 'Add Field',
+		default: {},
 		displayOptions: {
 			show: {
-				operation: ['createTicket']
+				resource: ['ticket'],
+				operation: ['create'],
 			},
 		},
-		required: true,
-	},
-	{
-		displayName: 'Initiator Name or ID',
-		name: 'user',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getUsers',
-		},
-		default: '',
-		description: 'The Initiator of the Ticket. If "None" is selected, it will be left blank. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-		displayOptions: {
-			show: {
-				operation: ['createTicket']
+		options: [
+			{
+				displayName: 'Creator Name or ID',
+				name: 'creator',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getUsers',
+				},
+				default: '',
+				description:
+					'The creator of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'Responsible User Name or ID',
-		name: 'responsibleUser',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getUsers',
-		},
-		default: '',
-		description: 'The Responsible User of the Ticket. If "None" is selected, it will be left blank. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-		displayOptions: {
-			show: {
-				operation: ['createTicket']
+			{
+				displayName: 'Extra Properties',
+				name: 'extraProperties',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				default: {},
+				placeholder: 'Add Property',
+				description:
+					'Set arbitrary ticket attributes as name/value pairs, e.g. a custom attribute of the ticket type or a field like Solution',
+				options: [
+					{
+						displayName: 'Property',
+						name: 'property',
+						values: [
+							{
+								displayName: 'Name',
+								name: 'name',
+								type: 'string',
+								default: '',
+								description: 'Technical name of the ticket attribute',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description: 'Value to set on the attribute',
+							},
+						],
+					},
+				],
 			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'SLA Name or ID',
-		name: 'sla',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getTicketSlas',
-		},
-		default: '',
-		description: 'The SLA of the Ticket. If "None" is selected, the Category default will be used. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-		displayOptions: {
-			show: {
-				operation: ['createTicket']
+			{
+				displayName: 'Initiator Name or ID',
+				name: 'user',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getUsers',
+				},
+				default: '',
+				description:
+					'The initiator of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
-		},
-		required: true,
+			{
+				displayName: 'Responsible Role Name or ID',
+				name: 'responsibleRole',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getTicketRoles',
+					loadOptionsDependsOn: ['category'],
+				},
+				default: '',
+				description:
+					'The responsible role of the ticket. Leave empty to use the category default. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+			{
+				displayName: 'Responsible User Name or ID',
+				name: 'responsibleUser',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getUsers',
+				},
+				default: '',
+				description:
+					'The responsible user of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+			{
+				displayName: 'SLA Name or ID',
+				name: 'sla',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getTicketSlas',
+				},
+				default: '',
+				description:
+					'The SLA of the ticket. Leave empty to use the category default. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+		],
 	},
 ];
 
 const closeTicketOperation: INodeProperties[] = [
 	{
-		displayName: 'Ticket EOID',
+		displayName: 'Ticket ID',
 		name: 'ticketEoid',
 		type: 'string',
 		default: '',
-		description: 'The Expression-ObjectID of the Ticket/Service Request/Incident',
+		description: 'The Expression-ObjectID of the ticket, service request or incident to close',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
 		required: true,
@@ -293,10 +348,10 @@ const closeTicketOperation: INodeProperties[] = [
 		description: 'Whether related incidents will be automatically closed',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
-		required: true,
 	},
 	{
 		displayName: 'Close Reason Name or ID',
@@ -312,10 +367,12 @@ const closeTicketOperation: INodeProperties[] = [
 			loadOptionsMethod: 'getTicketCloseReasons',
 		},
 		default: 408,
-		description: 'Closing reason for the Ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		description:
+			'The closing reason for the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
 		required: true,
@@ -334,10 +391,12 @@ const closeTicketOperation: INodeProperties[] = [
 			loadOptionsMethod: 'getTicketCloseErrorTypes',
 		},
 		default: 0,
-		description: 'Error Type for the Ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		description:
+			'The error type for the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
 		required: true,
@@ -350,10 +409,11 @@ const closeTicketOperation: INodeProperties[] = [
 			editor: 'htmlEditor',
 		},
 		default: '',
-		description: 'Solution for Closing Ticket in HTML',
+		description: 'The solution for closing the ticket, as HTML',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
 		required: true,
@@ -386,13 +446,13 @@ const closeTicketOperation: INodeProperties[] = [
 			},
 		],
 		default: 10,
-		description: 'Set the affected Service Availability while ticket been processed',
+		description: 'The affected service availability while the ticket was being processed',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
-		required: true,
 	},
 	{
 		displayName: 'Assets Availability',
@@ -403,50 +463,45 @@ const closeTicketOperation: INodeProperties[] = [
 			{
 				name: 'Unknown',
 				value: 0,
-				description: 'Calculate Priority'
 			},
 			{
 				name: 'Available',
 				value: 10,
-				description: 'Without Priority'
 			},
 			{
 				name: 'Partial Available',
 				value: 20,
-				description: 'Low Priority'
 			},
 			{
-				name: 'Unavailable(Planned)',
+				name: 'Unavailable (Planned)',
 				value: 30,
-				description: 'Medium Priority'
 			},
 			{
-				name: 'Unavailable(Unplanned)',
+				name: 'Unavailable (Unplanned)',
 				value: 40,
-				description: 'High Priority'
 			},
 		],
 		default: 10,
-		description: 'Set the affected Service Availability while ticket been processed',
+		description: 'The affected asset availability while the ticket was being processed',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
-		required: true,
 	},
 	{
-		displayName: 'Send Mail To Initiator',
+		displayName: 'Send Mail to Initiator',
 		name: 'sendMailToInitiator',
 		type: 'boolean',
 		default: true,
 		description: 'Whether the notification mail will be sent to the initiator',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
-		required: true,
 	},
 	{
 		displayName: 'Notify Responsible',
@@ -456,49 +511,50 @@ const closeTicketOperation: INodeProperties[] = [
 		description: 'Whether the notification mail will be sent to the responsible',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
-		required: true,
 	},
 	{
-		displayName: 'Send Mail To Users',
+		displayName: 'Send Mail to Users',
 		name: 'sendMailToUsers',
 		type: 'boolean',
 		default: true,
-		description: 'Whether the notification mail will be sent to the Ticket attached users',
+		description: 'Whether the notification mail will be sent to the users attached to the ticket',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
-		required: true,
 	},
 	{
-		displayName: 'Send Mail To Related Responsible Users',
+		displayName: 'Send Mail to Related Responsible Users',
 		name: 'sendMailToRelatedResponsibleUsers',
 		type: 'boolean',
 		default: true,
-		description: 'Whether the notification mail will be sent to the related tickets responsible users',
+		description: 'Whether the notification mail will be sent to the responsible users of related tickets',
 		displayOptions: {
 			show: {
-				operation: ['closeTicket']
+				resource: ['ticket'],
+				operation: ['close'],
 			},
 		},
-		required: true,
 	},
 ];
 
 const transformTicketOperation: INodeProperties[] = [
 	{
-		displayName: 'Ticket EOID',
+		displayName: 'Ticket ID',
 		name: 'ticketEoid',
 		type: 'string',
 		default: '',
-		description: 'The Expression-ObjectID of the Ticket/Service Request/Incident',
+		description: 'The Expression-ObjectID of the ticket, service request or incident to transform',
 		displayOptions: {
 			show: {
-				operation: ['transformTicket']
+				resource: ['ticket'],
+				operation: ['transform'],
 			},
 		},
 		required: true,
@@ -509,23 +565,24 @@ const transformTicketOperation: INodeProperties[] = [
 		type: 'options',
 		options: [
 			{
-				name: 'Ticket',
-				value: "SPSActivityTypeTicket",
+				name: 'Incident',
+				value: 'SPSActivityTypeIncident',
 			},
 			{
 				name: 'Service Request',
-				value: "SPSActivityTypeServiceRequest",
+				value: 'SPSActivityTypeServiceRequest',
 			},
 			{
-				name: 'Incident',
-				value: "SPSActivityTypeIncident",
-			}
+				name: 'Ticket',
+				value: 'SPSActivityTypeTicket',
+			},
 		],
 		default: 'SPSActivityTypeTicket',
-		description: 'The Source Type of the Activity (what type is the activity)',
+		description: 'The current type of the ticket',
 		displayOptions: {
 			show: {
-				operation: ['transformTicket']
+				resource: ['ticket'],
+				operation: ['transform'],
 			},
 		},
 		required: true,
@@ -536,19 +593,20 @@ const transformTicketOperation: INodeProperties[] = [
 		type: 'options',
 		options: [
 			{
-				name: 'Service Request',
-				value: "SPSActivityTypeServiceRequest",
+				name: 'Incident',
+				value: 'SPSActivityTypeIncident',
 			},
 			{
-				name: 'Incident',
-				value: "SPSActivityTypeIncident",
-			}
+				name: 'Service Request',
+				value: 'SPSActivityTypeServiceRequest',
+			},
 		],
 		default: 'SPSActivityTypeServiceRequest',
-		description: 'The Target Type of the Activity (what will the activity be transformed to)',
+		description: 'The type the ticket will be transformed to',
 		displayOptions: {
 			show: {
-				operation: ['transformTicket']
+				resource: ['ticket'],
+				operation: ['transform'],
 			},
 		},
 		required: true,
@@ -561,133 +619,12 @@ const transformTicketOperation: INodeProperties[] = [
 			loadOptionsMethod: 'getTicketCategories',
 		},
 		default: '',
-		description: 'The Category of the Ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		description:
+			'The category of the ticket. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
-				operation: ['transformTicket']
-			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'SLA Name or ID',
-		name: 'sla',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getTicketSlas',
-		},
-		default: '',
-		description: 'The SLA of the Ticket. If "None" is selected, it will not be changed. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-		displayOptions: {
-			show: {
-				operation: ['transformTicket']
-			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'OLA Name or ID',
-		name: 'ola',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getTicketOlas',
-		},
-		default: '',
-		description: 'The OLA of the Ticket. If "None" is selected, it will not be changed. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-		displayOptions: {
-			show: {
-				operation: ['transformTicket']
-			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'Recipient Role Name or ID',
-		name: 'recipientRole',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getTicketRoles',
-			loadOptionsDependsOn: ['category'],
-		},
-		default: '',
-		description: 'The Responsible Role of the Ticket. If "None" is selected, it will not be changed. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-		displayOptions: {
-			show: {
-				operation: ['transformTicket']
-			},
-		},
-		required: true,
-	}
-];
-
-const addJournalEntryOperation: INodeProperties[] = [
-	{
-		displayName: 'Ticket EOID',
-		name: 'ticketEoid',
-		type: 'string',
-		default: '',
-		description: 'The Expression-ObjectID of the Ticket/Service Request/Incident',
-		displayOptions: {
-			show: {
-				operation: ['addJournalEntry']
-			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'Comments',
-		name: 'comments',
-		type: 'string',
-		default: '',
-		description: 'The content of the journal entry',
-		displayOptions: {
-			show: {
-				operation: ['addJournalEntry']
-			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'Entry Type Name or ID',
-		name: 'entryType',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getJournalEntryTypes',
-		},
-		default: '',
-		description: 'The Entry Type of the Journal Entry. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-		displayOptions: {
-			show: {
-				operation: ['addJournalEntry']
-			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'Creator Name or ID',
-		name: 'creator',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getUsers',
-		},
-		default: '',
-		description: 'The Creator of the Journal Entry. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-		displayOptions: {
-			show: {
-				operation: ['addJournalEntry']
-			},
-		},
-		required: true,
-	},
-	{
-		displayName: 'Visible in Portal',
-		name: 'visibleInPortal',
-		type: 'boolean',
-		default: false,
-		description: 'Whether the journal entry should be visible in portal',
-		displayOptions: {
-			show: {
-				operation: ['addJournalEntry']
+				resource: ['ticket'],
+				operation: ['transform'],
 			},
 		},
 		required: true,
@@ -700,49 +637,182 @@ const addJournalEntryOperation: INodeProperties[] = [
 		default: {},
 		displayOptions: {
 			show: {
+				resource: ['ticket'],
+				operation: ['transform'],
+			},
+		},
+		options: [
+			{
+				displayName: 'OLA Name or ID',
+				name: 'ola',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getTicketOlas',
+				},
+				default: '',
+				description:
+					'The OLA of the ticket. Leave empty to keep it unchanged. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+			{
+				displayName: 'Recipient Role Name or ID',
+				name: 'recipientRole',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getTicketRoles',
+					loadOptionsDependsOn: ['category'],
+				},
+				default: '',
+				description:
+					'The recipient role of the ticket. Leave empty to keep it unchanged. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+			{
+				displayName: 'SLA Name or ID',
+				name: 'sla',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getTicketSlas',
+				},
+				default: '',
+				description:
+					'The SLA of the ticket. Leave empty to keep it unchanged. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+		],
+	},
+];
+
+const addJournalEntryOperation: INodeProperties[] = [
+	{
+		displayName: 'Ticket ID',
+		name: 'ticketEoid',
+		type: 'string',
+		default: '',
+		description: 'The Expression-ObjectID of the ticket, service request or incident',
+		displayOptions: {
+			show: {
+				resource: ['ticket'],
 				operation: ['addJournalEntry'],
 			},
 		},
-		// eslint-disable-next-line n8n-nodes-base/node-param-collection-type-unsorted-items
+		required: true,
+	},
+	{
+		displayName: 'Comments',
+		name: 'comments',
+		type: 'string',
+		default: '',
+		description: 'The content of the journal entry',
+		displayOptions: {
+			show: {
+				resource: ['ticket'],
+				operation: ['addJournalEntry'],
+			},
+		},
+		required: true,
+	},
+	{
+		displayName: 'Type Name or ID',
+		name: 'entryType',
+		type: 'options',
+		typeOptions: {
+			loadOptionsMethod: 'getJournalEntryTypes',
+		},
+		default: '',
+		description:
+			'The type of the journal entry. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		displayOptions: {
+			show: {
+				resource: ['ticket'],
+				operation: ['addJournalEntry'],
+			},
+		},
+		required: true,
+	},
+	{
+		displayName: 'Creator Name or ID',
+		name: 'creator',
+		type: 'options',
+		typeOptions: {
+			loadOptionsMethod: 'getUsers',
+		},
+		default: '',
+		description:
+			'The creator of the journal entry. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		displayOptions: {
+			show: {
+				resource: ['ticket'],
+				operation: ['addJournalEntry'],
+			},
+		},
+		required: true,
+	},
+	{
+		displayName: 'Visible in Portal',
+		name: 'visibleInPortal',
+		type: 'boolean',
+		default: false,
+		description: 'Whether the journal entry should be visible in the portal',
+		displayOptions: {
+			show: {
+				resource: ['ticket'],
+				operation: ['addJournalEntry'],
+			},
+		},
+	},
+	{
+		displayName: 'Additional Fields',
+		name: 'additionalFields',
+		type: 'collection',
+		placeholder: 'Add Field',
+		default: {},
+		displayOptions: {
+			show: {
+				resource: ['ticket'],
+				operation: ['addJournalEntry'],
+			},
+		},
 		options: [
-			{
-				displayName: 'Type ID',
-				name: 'typeId',
-				type: 'string',
-				default: undefined,
-			},
-			{
-				displayName: 'Publish',
-				name: 'publish',
-				type: 'boolean',
-				default: true,
-			},
 			{
 				displayName: 'File IDs',
 				name: 'fileIds',
 				type: 'json',
-				default: undefined,
+				default: '[]',
+				description: 'JSON array of file IDs to attach to the journal entry',
+			},
+			{
+				displayName: 'Is From Edit Dialog',
+				name: 'isFromEditDialog',
+				type: 'boolean',
+				default: false,
+				description: 'Whether the entry originates from an edit dialog',
 			},
 			{
 				displayName: 'Parameters',
 				name: 'parameters',
 				type: 'json',
 				default: '[]',
+				description: 'JSON array of additional parameters for the journal entry',
 			},
 			{
-				displayName: 'Is From Edit Dialog',
-				name: 'isFormEditDialog',
+				displayName: 'Publish',
+				name: 'publish',
 				type: 'boolean',
-				default: false,
+				default: true,
+				description: 'Whether to publish the journal entry',
+			},
+			{
+				displayName: 'Type ID',
+				name: 'typeId',
+				type: 'string',
+				default: '',
+				description: 'The Expression-ObjectID of the journal entry type',
 			},
 		],
 	},
 ];
 
 export const matrix42TicketFields: INodeProperties[] = [
-	...closeTicketOperation,
 	...createTicketOperation,
+	...closeTicketOperation,
 	...transformTicketOperation,
-	...addJournalEntryOperation
+	...addJournalEntryOperation,
 ];
-
