@@ -6,8 +6,9 @@ import type {
 	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
+	JsonObject,
 } from 'n8n-workflow';
-import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import { escapeAsqlString } from './GenericFunctions';
 import { matrix42ImportFields, matrix42ImportOperations } from './Matrix42ImportOperations';
 import { matrix42DataFields, matrix42DataOperations } from './Matrix42DataOperations';
@@ -797,7 +798,7 @@ export class Matrix42 implements INodeType {
 					continue;
 				}
 
-				throw error;
+				throw new NodeApiError(this.getNode(), error as JsonObject);
 			}
 		}
 
