@@ -11,7 +11,7 @@ import type {
 	INodeProperties,
 	INodePropertyOptions,
 } from 'n8n-workflow';
-import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { Matrix42 } from '../nodes/Matrix42/Matrix42.node';
 
@@ -845,7 +845,7 @@ describe('Matrix42.execute()', () => {
 		expect((httpCall(ctx.http, 1).options.body as IDataObject).Priority).toBe(2);
 	});
 
-	it('ticket:create throws NodeOperationError when impact is not numeric', async () => {
+	it('wraps a create validation error (non-numeric impact) as NodeApiError', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
@@ -862,7 +862,7 @@ describe('Matrix42.execute()', () => {
 			},
 		});
 
-		await expect(node.execute.call(ctx.mockThis)).rejects.toBeInstanceOf(NodeOperationError);
+		await expect(node.execute.call(ctx.mockThis)).rejects.toBeInstanceOf(NodeApiError);
 		expect(ctx.http).not.toHaveBeenCalled();
 	});
 
@@ -1174,7 +1174,7 @@ describe('Matrix42.execute()', () => {
 		expect(httpCall(ctx.http, 3).options.url).toContain(`${API_BASE}/commonStorage/finishUploading/`);
 	});
 
-	it('storage:upload throws NodeOperationError when no configuration item matches the objectId', async () => {
+	it('storage:upload surfaces a NodeApiError when no configuration item matches the objectId', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
@@ -1190,7 +1190,7 @@ describe('Matrix42.execute()', () => {
 		});
 		ctx.http.mockResolvedValueOnce([]); // typeId lookup returns nothing
 
-		await expect(node.execute.call(ctx.mockThis)).rejects.toBeInstanceOf(NodeOperationError);
+		await expect(node.execute.call(ctx.mockThis)).rejects.toBeInstanceOf(NodeApiError);
 	});
 
 	it('uses matrix42BasicApi when authentication is "basic"', async () => {
@@ -1247,7 +1247,7 @@ describe('Matrix42.execute()', () => {
 		expect(operationReads).toEqual([['operation', 0]]);
 	});
 
-	it('rethrows request errors when continueOnFail is false', async () => {
+	it('wraps request errors as NodeApiError when continueOnFail is false', async () => {
 		const ctx = createExecuteContext({
 			params: {
 				authentication: 'webserviceToken',
@@ -1260,7 +1260,7 @@ describe('Matrix42.execute()', () => {
 		});
 		ctx.http.mockRejectedValue(new Error('boom'));
 
-		await expect(node.execute.call(ctx.mockThis)).rejects.toThrow('boom');
+		await expect(node.execute.call(ctx.mockThis)).rejects.toBeInstanceOf(NodeApiError);
 	});
 
 	it('emits { json: { error } } for the failed item and continues when continueOnFail is true', async () => {

@@ -112,6 +112,10 @@ On execution, the node:
 
 ## Version History
 
+**0.2.1:**
+- Wrap runtime execution errors in `NodeApiError` so HTTP status codes and response context surface in the n8n UI.
+- Set the codex `nodeVersion` to `1.0` (schema value, independent of the node's runtime version).
+
 **0.2.0:**
 - **Breaking (node v2):** the `ASQL` resource was split into **Data Fragment** and **Data Object**, and operations were renamed to the standard CRUD set (`Get Many`, `Create`, `Update`, `Delete`, `Get`, `Transform`, `Close`, `Add Journal Entry`, `Upload`, `Execute`). Existing workflows using the node must reselect the resource/operation.
 - Token auth now performs the documented API‑token → access‑token exchange
