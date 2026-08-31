@@ -9,8 +9,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      # n8n-workflow 2.x transitively needs isolated-vm 6, whose native build
+      # requires Node 22+ — the same floor n8n 2.x itself has.
       matrix:
-        node-version: ['20.x', '22.x']
+        node-version: ['22.x', '24.x']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

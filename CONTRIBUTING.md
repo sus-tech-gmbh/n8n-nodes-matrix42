@@ -26,7 +26,8 @@ npm test           # vitest unit tests (test/)
 ```
 
 All of `npm run lint`, `npm test` and `npm run build` must pass before a pull request — CI runs them
-on Node 20 and 22.
+on Node 22 and 24 (the dev toolchain needs Node 22+; `n8n-workflow` 2.x pulls in a native module
+that does not build on older Node versions).
 
 Unit tests need no Matrix42 instance. For end-to-end testing the repository's parent workspace runs
 a local n8n in Docker with the freshly built node auto-loaded; any n8n with
