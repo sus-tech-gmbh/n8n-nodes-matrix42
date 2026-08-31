@@ -130,6 +130,7 @@ export class Matrix42Trigger implements INodeType {
 				name: 'createdDateAttribute',
 				type: 'string',
 				default: 'CreatedDate',
+				required: true,
 				description:
 					'Attribute of the data definition that holds the creation date. Not every class has one — when the class lacks it (e.g. SPSComputerClassBase), the poll fails with "does not contain attribute"; use the Object Created or Updated event instead, which works on every class.',
 				displayOptions: {
