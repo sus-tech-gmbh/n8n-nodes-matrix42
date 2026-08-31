@@ -43,7 +43,8 @@
       "dist/credentials/Matrix42TokenApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/Matrix42/Matrix42.node.js"
+      "dist/nodes/Matrix42/Matrix42.node.js",
+      "dist/nodes/Matrix42/Matrix42Trigger.node.js"
     ]
   },
   "devDependencies": {

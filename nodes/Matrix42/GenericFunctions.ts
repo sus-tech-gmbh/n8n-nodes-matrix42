@@ -5,6 +5,7 @@ import type {
 	IHttpRequestMethods,
 	IHttpRequestOptions,
 	ILoadOptionsFunctions,
+	IPollFunctions,
 	JsonObject,
 } from 'n8n-workflow';
 import { NodeApiError } from 'n8n-workflow';
@@ -16,7 +17,7 @@ interface Matrix42Credentials {
 	explicitLanguage?: string;
 }
 
-type Matrix42Context = IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions;
+type Matrix42Context = IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions | IPollFunctions;
 
 interface CachedAccessToken {
 	accessToken: string;

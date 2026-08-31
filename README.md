@@ -65,6 +65,26 @@ This node supports multiple operations across different resources:
 
 -   **Execute** (`execute`): Run a predefined import definition to ingest data.
 
+## Matrix42 Trigger
+
+The package also ships a **Matrix42 Trigger** node — a polling trigger that starts a workflow when objects are created (or created/updated) in Matrix42. It works against any data definition, so "on new ticket" is just the default configuration (`SPSActivityClassBase`), and the same node covers users, assets, or custom classes.
+
+-   **Event**
+    -   *Object Created* — watches a creation-date attribute (default `CreatedDate`; configurable, since not every class has one).
+    -   *Object Created or Updated* — watches the universal `TimeStamp` rowversion column, which exists on every data definition and changes on every write. Exactly-once, no configuration needed.
+-   **Data Definition** — the watched class, picked from the instance's schema.
+-   **Type Filter** — optionally narrow to specific configuration-item types (e.g. only Incidents); filtered server-side, and the dropdown only offers types composed of the selected data definition.
+-   **Additional fields** — an ASQL filter (AND-ed server-side), extra output columns, a per-poll limit, and *Fetch Full Object* to attach the complete object (all fragments) to each result.
+
+Behavior notes:
+
+-   Output rows always include the fragment `ID`, the object ID as `ObjectID` (what the ticket operations expect as EOID), the watermark attribute, `DisplayString` and `Expression-TypeID`.
+-   On activation the trigger baselines on the newest existing record — historic records never fire.
+-   The watermark comes from values the API itself returned (never the local clock), and boundary duplicates are deduplicated by ID, so events are neither lost nor duplicated — including rows created in the same millisecond and backlogs larger than the per-poll limit (they carry over to the next poll).
+-   "Fetch Test Event" in the editor returns the newest matching record without touching the trigger's state.
+-   A failing configuration (e.g. a missing created-date attribute) fails visibly in the editor and on activation. On an active workflow, a failing poll produces a regular failed execution (feeding any configured error workflow) and polling simply continues — the trigger never dies silently.
+-   Known limitation: a row committed by a long-running database transaction (or written by a clock-skewed server) can become visible *below* an already-advanced watermark and is then not picked up. Under normal Service Desk load this does not occur; it can matter next to heavy concurrent imports.
+
 ## Credentials
 
 > **Prerequisite:** You must have access to a running Matrix42 instance with appropriate API permissions.
