@@ -70,7 +70,8 @@ This node supports multiple operations across different resources:
 The package also ships a **Matrix42 Trigger** node — a polling trigger that starts a workflow when objects are created (or created/updated) in Matrix42. It works against any data definition, so "on new ticket" is just the default configuration (`SPSActivityClassBase`), and the same node covers users, assets, or custom classes.
 
 -   **Event**
-    -   *Object Created* — watches a creation-date attribute (default `CreatedDate`; configurable, since not every class has one).
+    -   *Ticket Created* (default) — the common case as a preset: fires for every new Service Desk ticket (`SPSActivityClassBase` via `CreatedDate`, both hardcoded), leaving only the ticket-type filter and the additional fields to configure.
+    -   *Object Created* — watches any data definition through a creation-date attribute (default `CreatedDate`; configurable, since not every class has one).
     -   *Object Created or Updated* — watches the universal `TimeStamp` rowversion column, which exists on every data definition and changes on every write. Exactly-once, no configuration needed.
 -   **Data Definition** — the watched class, picked from the instance's schema.
 -   **Type Filter** — optionally narrow to specific configuration-item types (e.g. only Incidents); filtered server-side, and the dropdown only offers types composed of the selected data definition.

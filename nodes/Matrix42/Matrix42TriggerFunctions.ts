@@ -1,4 +1,9 @@
-import type { IDataObject, IPollFunctions } from 'n8n-workflow';
+import type {
+	IDataObject,
+	ILoadOptionsFunctions,
+	INodePropertyOptions,
+	IPollFunctions,
+} from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 import { escapeAsqlString, matrix42ApiRequest } from './GenericFunctions';
 
@@ -9,6 +14,9 @@ interface TriggerAdditionalFields {
 	fetchFullObject?: boolean;
 	limit?: number;
 }
+
+/** The data definition all Service Desk tickets live on — the Ticket Created preset. */
+export const TICKET_DATA_DEFINITION = 'SPSActivityClassBase';
 
 /**
  * Watermark state kept in the workflow's static data. Persisted by n8n on
@@ -45,6 +53,92 @@ const EPOCH_ISO = '1970-01-01T00:00:00.000Z';
  */
 const schemaTypesCache = new WeakMap<object, { expiresAt: number; ciByTypeId: Map<string, string> }>();
 const SCHEMA_TYPES_TTL_MS = 10 * 60_000;
+
+interface SchemaClass {
+	IsPickup?: boolean;
+	InternalName?: string;
+	DisplayName?: string;
+	ProtectionLevel?: number;
+}
+
+interface SchemaType {
+	RelatedClasses?: string[];
+	MainClassName?: string;
+	InternalName?: string;
+	DisplayName?: string;
+	Id?: string;
+}
+
+/** Dropdown options: every non-pickup, non-internal data definition of the instance. */
+export async function listDataDefinitionOptions(
+	this: ILoadOptionsFunctions,
+): Promise<INodePropertyOptions[]> {
+	const responseData = (await matrix42ApiRequest.call(
+		this,
+		'GET',
+		'/Schema/classes',
+		{},
+	)) as SchemaClass[];
+
+	if (!Array.isArray(responseData)) {
+		throw new NodeOperationError(this.getNode(), 'No data got returned');
+	}
+
+	return responseData
+		.filter(
+			(entry) =>
+				entry.IsPickup !== true &&
+				// ProtectionLevel 1 = internal schema infrastructure classes
+				entry.ProtectionLevel !== 1 &&
+				typeof entry.InternalName === 'string',
+		)
+		.map((entry) => ({
+			name: `${entry.DisplayName || entry.InternalName} (${entry.InternalName})`,
+			value: entry.InternalName as string,
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Dropdown options: configuration-item types, narrowed to the ones composed of
+ * the given data definition (all types when nothing matches, or none is given).
+ * The option value is the type GUID — what fragment rows carry as
+ * Expression-TypeID.
+ */
+export async function listObjectTypeOptions(
+	this: ILoadOptionsFunctions,
+	dataDefinition: string,
+): Promise<INodePropertyOptions[]> {
+	const responseData = (await matrix42ApiRequest.call(
+		this,
+		'GET',
+		'/Schema/types',
+		{},
+	)) as SchemaType[];
+
+	if (!Array.isArray(responseData)) {
+		throw new NodeOperationError(this.getNode(), 'No data got returned');
+	}
+
+	const usable = responseData.filter(
+		(entry) => typeof entry.Id === 'string' && typeof entry.InternalName === 'string',
+	);
+	const related = dataDefinition
+		? usable.filter(
+				(entry) =>
+					entry.MainClassName === dataDefinition ||
+					(entry.RelatedClasses ?? []).includes(dataDefinition),
+			)
+		: usable;
+	const entries = related.length > 0 ? related : usable;
+
+	return entries
+		.map((entry) => ({
+			name: `${entry.DisplayName || entry.InternalName} (${entry.InternalName})`,
+			value: entry.Id as string,
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
 
 /**
  * Decodes a Matrix42 `TimeStamp` value (base64 of the SQL Server 8-byte
@@ -180,15 +274,21 @@ async function attachFullObjects(this: IPollFunctions, rows: IDataObject[]): Pro
 
 export async function pollMatrix42(this: IPollFunctions) {
 	const event = this.getNodeParameter('event') as string;
-	const dataDefinition = this.getNodeParameter('dataDefinition') as string;
+	// "Ticket Created" is Object Created preset to the Service Desk ticket class.
+	const isTicketPreset = event === 'ticketCreated';
+	const isCreatedMode = isTicketPreset || event === 'objectCreated';
+	const dataDefinition = isTicketPreset
+		? TICKET_DATA_DEFINITION
+		: (this.getNodeParameter('dataDefinition') as string);
 	const typeIds = (this.getNodeParameter('typeFilter', []) as string[]) ?? [];
 	const additionalFields = (this.getNodeParameter('additionalFields', {}) ??
 		{}) as TriggerAdditionalFields;
 
-	const isCreatedMode = event === 'objectCreated';
-	const watermarkAttribute = isCreatedMode
-		? ((this.getNodeParameter('createdDateAttribute', 'CreatedDate') as string) || 'CreatedDate').trim()
-		: 'TimeStamp';
+	const watermarkAttribute = isTicketPreset
+		? 'CreatedDate'
+		: isCreatedMode
+			? ((this.getNodeParameter('createdDateAttribute', 'CreatedDate') as string) || 'CreatedDate').trim()
+			: 'TimeStamp';
 	const limit = Math.min(Math.max(additionalFields.limit ?? 50, 1), MAX_POLL_LIMIT);
 	const isManual = this.getMode() === 'manual';
 

@@ -5,24 +5,13 @@ import type {
 	INodeTypeDescription,
 	IPollFunctions,
 } from 'n8n-workflow';
-import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
-import { matrix42ApiRequest } from './GenericFunctions';
-import { pollMatrix42 } from './Matrix42TriggerFunctions';
-
-interface SchemaClass {
-	IsPickup?: boolean;
-	InternalName?: string;
-	DisplayName?: string;
-	ProtectionLevel?: number;
-}
-
-interface SchemaType {
-	RelatedClasses?: string[];
-	MainClassName?: string;
-	InternalName?: string;
-	DisplayName?: string;
-	Id?: string;
-}
+import { NodeConnectionTypes } from 'n8n-workflow';
+import {
+	listDataDefinitionOptions,
+	listObjectTypeOptions,
+	pollMatrix42,
+	TICKET_DATA_DEFINITION,
+} from './Matrix42TriggerFunctions';
 
 export class Matrix42Trigger implements INodeType {
 	description: INodeTypeDescription = {
@@ -32,7 +21,7 @@ export class Matrix42Trigger implements INodeType {
 		group: ['trigger'],
 		version: 1,
 		subtitle:
-			'={{($parameter["event"] === "objectCreated" ? "created" : "created/updated") + ": " + $parameter["dataDefinition"]}}',
+			'={{$parameter["event"] === "ticketCreated" ? "on ticket created" : ($parameter["event"] === "objectCreated" ? "created" : "created/updated") + ": " + $parameter["dataDefinition"]}}',
 		description: 'Starts the workflow when objects are created or updated in Matrix42',
 		defaults: {
 			name: 'Matrix42 Trigger',
@@ -97,7 +86,7 @@ export class Matrix42Trigger implements INodeType {
 						name: 'Object Created',
 						value: 'objectCreated',
 						description:
-							'Fire once for every new object, watched through a creation-date attribute',
+							'Fire once for every new object of any data definition, watched through a creation-date attribute',
 					},
 					{
 						name: 'Object Created or Updated',
@@ -105,8 +94,13 @@ export class Matrix42Trigger implements INodeType {
 						description:
 							'Fire for new and changed objects, watched through the universal TimeStamp rowversion',
 					},
+					{
+						name: 'Ticket Created',
+						value: 'ticketCreated',
+						description: 'Fire once for every new Service Desk ticket',
+					},
 				],
-				default: 'objectCreated',
+				default: 'ticketCreated',
 			},
 			{
 				displayName: 'Data Definition Name or ID',
@@ -119,6 +113,11 @@ export class Matrix42Trigger implements INodeType {
 				required: true,
 				description:
 					'The data definition (class) whose records are watched. The default SPSActivityClassBase covers all Service Desk tickets. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				displayOptions: {
+					show: {
+						event: ['objectCreated', 'objectCreatedOrUpdated'],
+					},
+				},
 			},
 			{
 				displayName: 'Type Filter Names or IDs',
@@ -198,65 +197,18 @@ export class Matrix42Trigger implements INodeType {
 	methods = {
 		loadOptions: {
 			async getDataDefinitions(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				const responseData = (await matrix42ApiRequest.call(
-					this,
-					'GET',
-					'/Schema/classes',
-					{},
-				)) as SchemaClass[];
-
-				if (!Array.isArray(responseData)) {
-					throw new NodeOperationError(this.getNode(), 'No data got returned');
-				}
-
-				return responseData
-					.filter(
-						(entry) =>
-							entry.IsPickup !== true &&
-							// ProtectionLevel 1 = internal schema infrastructure classes
-							entry.ProtectionLevel !== 1 &&
-							typeof entry.InternalName === 'string',
-					)
-					.map((entry) => ({
-						name: `${entry.DisplayName || entry.InternalName} (${entry.InternalName})`,
-						value: entry.InternalName as string,
-					}))
-					.sort((a, b) => a.name.localeCompare(b.name));
+				return await listDataDefinitionOptions.call(this);
 			},
 
 			async getObjectTypes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				const dataDefinition = this.getNodeParameter('dataDefinition', '') as string;
-				const responseData = (await matrix42ApiRequest.call(
-					this,
-					'GET',
-					'/Schema/types',
-					{},
-				)) as SchemaType[];
-
-				if (!Array.isArray(responseData)) {
-					throw new NodeOperationError(this.getNode(), 'No data got returned');
-				}
-
-				const usable = responseData.filter(
-					(entry) => typeof entry.Id === 'string' && typeof entry.InternalName === 'string',
-				);
-				// Narrow to types composed of the watched data definition; fall back to
-				// all types when nothing matches (exotic classes).
-				const related = dataDefinition
-					? usable.filter(
-							(entry) =>
-								entry.MainClassName === dataDefinition ||
-								(entry.RelatedClasses ?? []).includes(dataDefinition),
-						)
-					: usable;
-				const entries = related.length > 0 ? related : usable;
-
-				return entries
-					.map((entry) => ({
-						name: `${entry.DisplayName || entry.InternalName} (${entry.InternalName})`,
-						value: entry.Id as string,
-					}))
-					.sort((a, b) => a.name.localeCompare(b.name));
+				// The Ticket Created preset always watches the ticket class, even when a
+				// previously chosen data definition is still stored on the node.
+				const event = this.getNodeParameter('event', '') as string;
+				const dataDefinition =
+					event === 'ticketCreated'
+						? TICKET_DATA_DEFINITION
+						: (this.getNodeParameter('dataDefinition', '') as string);
+				return await listObjectTypeOptions.call(this, dataDefinition);
 			},
 		},
 	};

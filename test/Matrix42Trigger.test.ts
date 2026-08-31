@@ -698,3 +698,70 @@ describe('Matrix42Trigger loadOptions', () => {
 		expect(options).toHaveLength(2);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// "Ticket Created" preset event
+// ---------------------------------------------------------------------------
+
+describe('pollMatrix42 ticketCreated preset', () => {
+	it('is offered as a third event and hides the data-definition field', () => {
+		const trigger = new Matrix42Trigger();
+		const event = trigger.description.properties.find((property) => property.name === 'event');
+		expect((event?.options ?? []).map((option) => 'value' in option! && option.value)).toEqual([
+			'objectCreated',
+			'objectCreatedOrUpdated',
+			'ticketCreated',
+		]);
+		expect(event?.default).toBe('ticketCreated');
+
+		const dataDefinition = trigger.description.properties.find(
+			(property) => property.name === 'dataDefinition',
+		);
+		expect(dataDefinition?.displayOptions).toEqual({
+			show: { event: ['objectCreated', 'objectCreatedOrUpdated'] },
+		});
+		const createdDateAttribute = trigger.description.properties.find(
+			(property) => property.name === 'createdDateAttribute',
+		);
+		expect(createdDateAttribute?.displayOptions).toEqual({ show: { event: ['objectCreated'] } });
+	});
+
+	it('polls SPSActivityClassBase on CreatedDate regardless of stored data-definition parameters', async () => {
+		const newest = { ID: 'f-9', ObjectID: 'o-9', CreatedDate: '2026-08-31T11:49:52.61Z' };
+		const ctx = createPollContext({
+			// stale values from a previous event selection — the preset must win
+			params: {
+				event: 'ticketCreated',
+				dataDefinition: 'SPSComputerClassBase',
+				createdDateAttribute: 'WrongAttr',
+			},
+			responses: [[newest], [newest]],
+		});
+
+		const result = await pollMatrix42.call(ctx.mockThis);
+
+		expect(result).toBeNull();
+		const seedCall = callArgs(ctx.http)[1];
+		expect(seedCall.url).toBe(`${BASE_URL}/data/fragments/SPSActivityClassBase`);
+		expect(seedCall.qs).toMatchObject({
+			columns: 'ID,[Expression-ObjectID] as ObjectID,CreatedDate',
+			sort: 'CreatedDate DESC',
+		});
+		expect(ctx.staticData.configKey).toBe('SPSActivityClassBase::ticketCreated::CreatedDate');
+		expect(ctx.staticData.createdWatermark).toBe('2026-08-31T11:49:52.61Z');
+	});
+
+	it('applies the ticket-type filter server-side in the preset', async () => {
+		const ctx = createPollContext({
+			mode: 'manual',
+			params: { event: 'ticketCreated', typeFilter: ['incident-guid'] },
+			responses: [[]],
+		});
+
+		await pollMatrix42.call(ctx.mockThis);
+
+		const options = callArgs(ctx.http)[1];
+		expect(options.url).toBe(`${BASE_URL}/data/fragments/SPSActivityClassBase`);
+		expect(options.qs?.where).toBe("T(SPSCommonClassBase).[TypeID] = 'incident-guid'");
+	});
+});
