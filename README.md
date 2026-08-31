@@ -14,12 +14,17 @@ Matrix42’s ESMP API exposes CRUD‑style endpoints for data fragments, support
 
 [n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/reference/license/) workflow automation platform.
 
-[Installation](#installation)  
-[Operations](#operations)  
-[Credentials](#credentials)
-[Compatibility](#compatibility)  
-[Resources](#resources)  
-[Version history](#version-history)  
+| Contents | |
+| --- | --- |
+| [Installation](#installation) | Install as an n8n community node |
+| [Operations](#operations) | Every resource and operation of the Matrix42 node |
+| [Matrix42 Trigger](#matrix42-trigger) | The polling trigger node and its events |
+| [Credentials](#credentials) | Webservice Token and Basic auth setup |
+| [Compatibility](#compatibility) | Supported n8n, Node.js and Matrix42 versions |
+| [Resources](#resources) | Documentation links |
+| [Version History](#version-history) | What changed in each release |
+| [Project](#project) | Contributing, code of conduct, security policy, releases |
+| [Legal & Disclaimer](#legal--disclaimer) | Trademark and API-usage notes |
 
 ## Installation
 
