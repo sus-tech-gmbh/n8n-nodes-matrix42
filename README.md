@@ -112,6 +112,12 @@ On execution, the node:
 
 ## Version History
 
+**0.3.0:**
+- **Fixed: Webservice Token auth no longer fails after the access token expires** (reported as "auth invalidates itself after one day"). Matrix42 rejects an expired token with HTTP 406 — which n8n's built-in credential refresh (401-only) never picks up — so the node now performs the API-token → access-token exchange itself: once per execution, cached for the run, refreshed shortly before expiry and retried once on 401/406 (also covers server-side token revocation). Other failures are never retried.
+- **Add Journal Entry** reworked: **Parameters** is now a Name/Value/Format collection instead of a raw JSON field (the legacy JSON field of saved workflows is still read and validated); **Creator** is optional and, when empty, the entry is attributed to the API user; **Type ID** is validated as a GUID before sending. Documented that template parameters only render on system-generated entry types, not on plain comments.
+- Matrix42 validation rejections (400 with empty messages) now name the rejected fields in the error description instead of a bare "Bad request".
+- Last tested with n8n 2.36.9.
+
 **0.2.1:**
 - Wrap runtime execution errors in `NodeApiError` so HTTP status codes and response context surface in the n8n UI.
 - Set the codex `nodeVersion` to `1.0` (schema value, independent of the node's runtime version).
