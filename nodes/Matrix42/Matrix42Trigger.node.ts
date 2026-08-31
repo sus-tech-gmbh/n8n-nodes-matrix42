@@ -64,6 +64,13 @@ export class Matrix42Trigger implements INodeType {
 		],
 		properties: [
 			{
+				displayName:
+					'This trigger polls Matrix42 on the schedule set under Poll Times (while the workflow is active) and fires for records that appeared since the last check. The "Fetch Test Event" button does not wait for new records — it just returns the newest matching record as a sample, without changing the trigger\'s state.',
+				name: 'notice',
+				type: 'notice',
+				default: '',
+			},
+			{
 				displayName: 'Authentication',
 				name: 'authentication',
 				type: 'options',
