@@ -532,11 +532,11 @@ describe('addJournalEntry', () => {
 		visibleInPortal: true,
 	};
 
-	it('POSTs to /journal/Add, parsing Parameters/FileIds to arrays and sending IsFromEditDialog (corrected spelling)', async () => {
+	it('POSTs to /journal/Add with parsed Parameters/FileIds, a GUID TypeId and IsFromEditDialog (corrected spelling)', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 			...baseParams,
 			additionalFields: {
-				typeId: 'type-guid',
+				typeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
 				publish: true,
 				fileIds: '["file-1","file-2"]',
 				parameters: '[{"Name":"Priority","Value":"High"}]',
@@ -561,7 +561,7 @@ describe('addJournalEntry', () => {
 				VisibleInPortal: true,
 				Parameters: [{ Name: 'Priority', Value: 'High' }],
 				IsFromEditDialog: true,
-				TypeId: 'type-guid',
+				TypeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
 				FileIds: ['file-1', 'file-2'],
 			},
 			qs: {},
@@ -646,57 +646,184 @@ describe('addJournalEntry', () => {
 	it('includes only TypeId when typeId is set without fileIds', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 			...baseParams,
-			additionalFields: { typeId: 'only-type-guid', publish: false, parameters: '' },
+			additionalFields: {
+				typeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
+				publish: false,
+				parameters: '',
+			},
 		});
 
 		await addJournalEntry.call(mockThis, 0);
 
 		const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
-		expect(body.TypeId).toBe('only-type-guid');
+		expect(body.TypeId).toBe('019f8b52-9a05-e711-1010-e2edb1eae152');
 		expect('FileIds' in body).toBe(false);
 		// parameters '' parses to []
 		expect(body.Parameters).toEqual([]);
 	});
 
-	describe('parseJsonArray branches for Parameters/FileIds', () => {
-		it('wraps a JSON object string into a single-element array', async () => {
+	it('throws a descriptive NodeOperationError for a non-GUID Type ID and never issues a request', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			...baseParams,
+			additionalFields: { typeId: 'not-a-guid' },
+		});
+
+		await expect(addJournalEntry.call(mockThis, 0)).rejects.toThrow(
+			'The "Type ID" field must be a GUID, got: not-a-guid',
+		);
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('omits TypeId when typeId is an empty string', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			...baseParams,
+			additionalFields: { typeId: '' },
+		});
+
+		await addJournalEntry.call(mockThis, 0);
+
+		const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
+		expect('TypeId' in body).toBe(false);
+	});
+
+	it('omits Creator when it is blank ("" or nil GUID) and keeps a real one', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			...baseParams,
+			creator: '',
+		});
+
+		await addJournalEntry.call(mockThis, 0);
+
+		const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
+		expect('Creator' in body).toBe(false);
+
+		const nilCtx = buildMockThis({ ...baseParams, creator: NIL_GUID });
+		await addJournalEntry.call(nilCtx.mockThis, 0);
+		const nilBody = callArgs(nilCtx.httpRequestWithAuthentication)[1].body as Record<
+			string,
+			unknown
+		>;
+		expect('Creator' in nilBody).toBe(false);
+
+		const setCtx = buildMockThis({ ...baseParams, creator: 'creator-guid' });
+		await addJournalEntry.call(setCtx.mockThis, 0);
+		const setBody = callArgs(setCtx.httpRequestWithAuthentication)[1].body as Record<
+			string,
+			unknown
+		>;
+		expect(setBody.Creator).toBe('creator-guid');
+	});
+
+	describe('journal parameters', () => {
+		it('maps the Parameters fixedCollection to {Name, Value, Format} objects, dropping an empty Format', async () => {
 			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 				...baseParams,
-				additionalFields: { parameters: '{"key":"value"}' },
+				additionalFields: {
+					journalParameters: {
+						parameter: [
+							{ name: 'TestParam', value: 'hello', format: '' },
+							{ name: 'Amount', value: '42', format: 'N2' },
+						],
+					},
+				},
 			});
 
 			await addJournalEntry.call(mockThis, 0);
 
 			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
-			expect(body.Parameters).toEqual([{ key: 'value' }]);
+			expect(body.Parameters).toEqual([
+				{ Name: 'TestParam', Value: 'hello' },
+				{ Name: 'Amount', Value: '42', Format: 'N2' },
+			]);
 		});
 
-		it('passes an already-array value through unchanged', async () => {
+		it('skips entirely blank collection rows (accidental "Add Parameter" clicks)', async () => {
 			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 				...baseParams,
-				additionalFields: { parameters: [1, 2, 3], fileIds: ['a', 'b'] },
+				additionalFields: {
+					journalParameters: {
+						parameter: [
+							{ name: '', value: '', format: '' },
+							{ name: 'Kept', value: 'yes' },
+						],
+					},
+				},
 			});
 
 			await addJournalEntry.call(mockThis, 0);
 
 			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
-			expect(body.Parameters).toEqual([1, 2, 3]);
-			expect(body.FileIds).toEqual(['a', 'b']);
+			expect(body.Parameters).toEqual([{ Name: 'Kept', Value: 'yes' }]);
 		});
 
-		it('wraps a non-array object value into a single-element array', async () => {
+		it('throws when a row has a value but no name (the API would store nameless junk)', async () => {
 			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 				...baseParams,
-				additionalFields: { parameters: { a: 1 } },
+				additionalFields: {
+					journalParameters: { parameter: [{ name: '', value: 'orphan' }] },
+				},
+			});
+
+			await expect(addJournalEntry.call(mockThis, 0)).rejects.toThrow(
+				'Journal parameter 1 needs a non-empty "Name"',
+			);
+			expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+		});
+
+		it('still accepts the legacy raw-JSON parameters field, normalizing lowercase keys', async () => {
+			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+				...baseParams,
+				additionalFields: {
+					parameters: '[{"Name":"A","Value":"1"},{"name":"B","value":"2","format":"N0"}]',
+				},
 			});
 
 			await addJournalEntry.call(mockThis, 0);
 
 			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
-			expect(body.Parameters).toEqual([{ a: 1 }]);
+			expect(body.Parameters).toEqual([
+				{ Name: 'A', Value: '1' },
+				{ Name: 'B', Value: '2', Format: 'N0' },
+			]);
 		});
 
-		it('throws a descriptive error when Parameters is a non-JSON string', async () => {
+		it('combines fixedCollection rows with legacy JSON parameters', async () => {
+			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+				...baseParams,
+				additionalFields: {
+					journalParameters: { parameter: [{ name: 'FromUi', value: 'x' }] },
+					parameters: '[{"Name":"FromJson","Value":"y"}]',
+				},
+			});
+
+			await addJournalEntry.call(mockThis, 0);
+
+			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
+			expect(body.Parameters).toEqual([
+				{ Name: 'FromUi', Value: 'x' },
+				{ Name: 'FromJson', Value: 'y' },
+			]);
+		});
+
+		it('rejects legacy JSON whose elements are not objects with a Name', async () => {
+			const wrongKeys = buildMockThis({
+				...baseParams,
+				additionalFields: { parameters: '[{"someKey":"v"}]' },
+			});
+			await expect(addJournalEntry.call(wrongKeys.mockThis, 0)).rejects.toThrow(
+				'Journal parameter 1 needs a non-empty "Name"',
+			);
+
+			const notObjects = buildMockThis({
+				...baseParams,
+				additionalFields: { parameters: '["a","b"]' },
+			});
+			await expect(addJournalEntry.call(notObjects.mockThis, 0)).rejects.toThrow(
+				'Journal parameter 1 must be an object with "Name" and "Value" keys',
+			);
+		});
+
+		it('throws a descriptive error when the legacy Parameters value is a non-JSON string', async () => {
 			const { mockThis } = buildMockThis({
 				...baseParams,
 				additionalFields: { parameters: 'file-1,file-2' },

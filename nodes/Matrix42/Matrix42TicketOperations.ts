@@ -736,14 +736,13 @@ const addJournalEntryOperation: INodeProperties[] = [
 		},
 		default: '',
 		description:
-			'The creator of the journal entry. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			'The creator of the journal entry. Leave empty to attribute the entry to the API user. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 		displayOptions: {
 			show: {
 				resource: ['ticket'],
 				operation: ['addJournalEntry'],
 			},
 		},
-		required: true,
 	},
 	{
 		displayName: 'Visible in Portal',
@@ -787,10 +786,45 @@ const addJournalEntryOperation: INodeProperties[] = [
 			},
 			{
 				displayName: 'Parameters',
-				name: 'parameters',
-				type: 'json',
-				default: '[]',
-				description: 'JSON array of additional parameters for the journal entry',
+				name: 'journalParameters',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				default: {},
+				placeholder: 'Add Parameter',
+				description:
+					'Template parameters stored with the entry as name/value pairs. Matrix42 only renders them through the localized templates of system-generated entry types — they have no visible effect on a plain comment entry.',
+				options: [
+					{
+						displayName: 'Parameter',
+						name: 'parameter',
+						values: [
+							{
+								displayName: 'Name',
+								name: 'name',
+								type: 'string',
+								default: '',
+								description: 'Name of the template parameter',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description: 'Value of the parameter',
+							},
+							{
+								displayName: 'Format',
+								name: 'format',
+								type: 'string',
+								default: '',
+								placeholder: 'e.g. N2',
+								description: 'Optional .NET format string applied when the value is rendered',
+							},
+						],
+					},
+				],
 			},
 			{
 				displayName: 'Publish',
@@ -804,7 +838,9 @@ const addJournalEntryOperation: INodeProperties[] = [
 				name: 'typeId',
 				type: 'string',
 				default: '',
-				description: 'The Expression-ObjectID of the journal entry type',
+				placeholder: 'e.g. 019f8b52-9a05-e711-1010-e2edb1eae152',
+				description:
+					'GUID of a journal entry type record. Usually not needed — the required Type field already sets the entry type. The server rejects any value that is not a GUID.',
 			},
 		],
 	},

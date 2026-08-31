@@ -188,35 +188,113 @@ export async function transformTicket(this: IExecuteFunctions, i: number) {
 	return returnData;
 }
 
+const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/** The journal/Add contract for one template parameter. */
+interface JournalParameter {
+	Name: string;
+	Value: unknown;
+	Format?: string;
+	IsCurrency?: boolean;
+}
+
+/** True for a row whose every value is empty — an accidental "Add Parameter" click. */
+function isBlankParameterRow(raw: unknown): boolean {
+	if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+		return false;
+	}
+	return Object.values(raw).every((value) => value === '' || value === undefined || value === null);
+}
+
+/**
+ * Normalizes one journal parameter to the {Name, Value, Format?, IsCurrency?} shape the API
+ * expects, accepting both key casings. Anything else is rejected with a descriptive message —
+ * the API would otherwise store a nameless junk parameter (HTTP 200) or answer a 400 whose
+ * validation body carries empty messages.
+ */
+function toJournalParameter(this: IExecuteFunctions, raw: unknown, index: number): JournalParameter {
+	if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`Journal parameter ${index + 1} must be an object with "Name" and "Value" keys`,
+		);
+	}
+	const entry = raw as Record<string, unknown>;
+	const name = entry.Name ?? entry.name;
+	if (typeof name !== 'string' || name.trim() === '') {
+		throw new NodeOperationError(
+			this.getNode(),
+			`Journal parameter ${index + 1} needs a non-empty "Name"`,
+		);
+	}
+	const parameter: JournalParameter = { Name: name, Value: entry.Value ?? entry.value ?? '' };
+	const format = entry.Format ?? entry.format;
+	if (typeof format === 'string' && format !== '') {
+		parameter.Format = format;
+	}
+	const isCurrency = entry.IsCurrency ?? entry.isCurrency;
+	if (typeof isCurrency === 'boolean') {
+		parameter.IsCurrency = isCurrency;
+	}
+	return parameter;
+}
+
 export async function addJournalEntry(this: IExecuteFunctions, i: number) {
 	const ticketEoid = this.getNodeParameter('ticketEoid', i) as string;
 	const comments = this.getNodeParameter('comments', i) as string;
 	const entryType = toNumber.call(this, this.getNodeParameter('entryType', i), 'Type');
-	const creator = this.getNodeParameter('creator', i) as string;
+	const creator = this.getNodeParameter('creator', i, '') as string;
 	const visibleInPortal = this.getNodeParameter('visibleInPortal', i) as boolean;
 
 	const additionalFields = this.getNodeParameter('additionalFields', i, {}) as {
 		typeId?: string;
 		publish?: boolean;
 		fileIds?: string;
-		parameters?: string;
+		journalParameters?: {
+			parameter?: Array<{ name?: string; value?: string; format?: string }>;
+		};
+		/** Raw-JSON parameters of workflows saved before the fixedCollection UI. */
+		parameters?: unknown;
 		isFromEditDialog?: boolean;
 	};
+
+	const rawParameters: unknown[] = [
+		...(additionalFields.journalParameters?.parameter ?? []),
+		...parseJsonArray(additionalFields.parameters, 'Parameters'),
+	];
+	const parameters = rawParameters
+		.filter((raw) => !isBlankParameterRow(raw))
+		.map((raw, index) => toJournalParameter.call(this, raw, index));
 
 	const body: IDataObject = {
 		ObjectId: ticketEoid,
 		Publish: additionalFields.publish ?? false,
 		Comments: comments,
 		EntryType: entryType,
-		Creator: creator,
 		VisibleInPortal: visibleInPortal,
-		Parameters: parseJsonArray(additionalFields.parameters, 'Parameters'),
+		Parameters: parameters,
 		IsFromEditDialog: additionalFields.isFromEditDialog ?? false,
-		...(additionalFields.typeId !== undefined && { TypeId: additionalFields.typeId }),
 		...(additionalFields.fileIds !== undefined && {
 			FileIds: parseJsonArray(additionalFields.fileIds, 'File IDs'),
 		}),
 	};
+
+	// Omitted when blank: the API rejects an empty Creator with an opaque 400 but happily
+	// attributes the entry to the API user when the key is absent.
+	if (!isBlankRelation(creator)) {
+		body.Creator = creator;
+	}
+
+	const typeId = additionalFields.typeId;
+	if (typeId !== undefined && typeId !== '') {
+		if (!GUID_RE.test(typeId)) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`The "Type ID" field must be a GUID, got: ${typeId}`,
+			);
+		}
+		body.TypeId = typeId;
+	}
 
 	await matrix42ApiRequest.call(this, 'POST', '/journal/Add', body, {});
 

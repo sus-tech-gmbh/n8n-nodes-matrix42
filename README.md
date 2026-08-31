@@ -55,7 +55,7 @@ This node supports multiple operations across different resources:
 
 -   **Transform** (`transform`): Transform a ticket into another type.
 
--   **Add Journal Entry** (`addJournalEntry`): Add a journal entry to a ticket.
+-   **Add Journal Entry** (`addJournalEntry`): Add a journal entry (comment) to a ticket. **Creator** is optional — left empty, the entry is attributed to the API user. Optional template **Parameters** are entered as Name/Value/Format rows; note that Matrix42 only renders such parameters through the localized templates of system-generated entry types, so they have no visible effect on a plain comment entry.
 
 ### Storage
 

@@ -232,12 +232,31 @@ export async function matrix42ApiRequest(
 			message: `Matrix42 request failed (HTTP ${response.statusCode})`,
 			description: isAuthFailure
 				? 'Matrix42 rejected the access token even after refreshing it. Check that the Webservice Token is still valid and its account has API access.'
-				: typeof response.body === 'string'
-					? response.body
-					: response.body !== undefined && response.body !== null
-						? JSON.stringify(response.body)
-						: undefined,
+				: describeResponseBody(response.body),
 			httpCode: String(response.statusCode),
 		},
 	);
+}
+
+/**
+ * Renders an error-response body for the error description. Matrix42's model-binding
+ * rejections come as `[{ "Name": "entryInfo.Creator", "Message": "" }]` — with the
+ * messages usually empty — so the field names are the only usable diagnostic and are
+ * called out explicitly instead of leaving the user with a bare "Bad request".
+ */
+function describeResponseBody(body: unknown): string | undefined {
+	if (
+		Array.isArray(body) &&
+		body.length > 0 &&
+		body.every((entry) => entry !== null && typeof entry === 'object' && 'Name' in entry)
+	) {
+		const fields = (body as Array<{ Name: unknown; Message?: unknown }>).map((entry) => {
+			const message = String(entry.Message ?? '').trim();
+			return message ? `${String(entry.Name)} (${message})` : String(entry.Name);
+		});
+		return `The server rejected the following field(s): ${fields.join(', ')}`;
+	}
+	if (typeof body === 'string') return body;
+	if (body !== undefined && body !== null) return JSON.stringify(body);
+	return undefined;
 }
