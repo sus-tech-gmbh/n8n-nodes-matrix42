@@ -82,7 +82,7 @@ This node supports two authentication methods. Configure these under **Workflow 
 
 On execution, the node:
 
--   Exchanges the API Token for a short‑lived Bearer (JWT) access token via `GenerateAccessTokenFromApiToken` (handled automatically in the credential's pre‑authentication step; the access token is cached and refreshed on expiry).
+-   Exchanges the API Token for a short‑lived Bearer (JWT) access token via `GenerateAccessTokenFromApiToken` once per workflow execution, caches it for the duration of the run, and re‑exchanges it automatically shortly before it expires or when the server rejects it (Matrix42 signals a rejected token with HTTP 406, which n8n's built‑in credential refresh does not handle — the node therefore manages the exchange itself).
 
 -   Uses the access token in the `Authorization` header for all subsequent calls.
 
@@ -99,7 +99,7 @@ On execution, the node:
 
 ## Compatibility
 
--   **n8n**: Node API version 1; built and tested against `n8n-workflow` 2.x. Requires n8n 1.85 or later (uses `NodeConnectionTypes`). Last tested with n8n 2.2.3.
+-   **n8n**: Node API version 1; built and tested against `n8n-workflow` 2.x. Requires n8n 1.85 or later (uses `NodeConnectionTypes`). Last tested with n8n 2.36.9.
 
 -   **Node.js**: v22 or higher.
 

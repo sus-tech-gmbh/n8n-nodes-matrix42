@@ -37,7 +37,7 @@ describe('getData', () => {
 
 	it('fetches a single page via GET (no user filters) with pageSize and page, wrapping the array', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			authentication: 'token',
+			authentication: 'basic',
 			dataQueryId: 'dq-1',
 			returnAll: false,
 			pageSize: 50,
@@ -59,7 +59,7 @@ describe('getData', () => {
 
 	it('URL-encodes the data query id', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			authentication: 'token',
+			authentication: 'basic',
 			dataQueryId: 'a b/c',
 			returnAll: false,
 			pageSize: 10,
@@ -75,7 +75,7 @@ describe('getData', () => {
 
 	it('maps optional Additional Fields to the exact query keys, skipping empty strings', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			authentication: 'token',
+			authentication: 'basic',
 			dataQueryId: 'dq-1',
 			returnAll: false,
 			pageSize: 25,
@@ -109,7 +109,7 @@ describe('getData', () => {
 
 	it('returnAll pages until a short page is returned (pages are zero-based)', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			authentication: 'token',
+			authentication: 'basic',
 			dataQueryId: 'dq-1',
 			returnAll: true,
 			pageSize: 2,
@@ -131,7 +131,7 @@ describe('getData', () => {
 
 	it('returnAll makes one more request when the total is an exact multiple of pageSize', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			authentication: 'token',
+			authentication: 'basic',
 			dataQueryId: 'dq-1',
 			returnAll: true,
 			pageSize: 2,
@@ -149,7 +149,7 @@ describe('getData', () => {
 
 	it('switches to POST and sends the parsed userFilters (from additionalFields) as the raw body', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			authentication: 'token',
+			authentication: 'basic',
 			dataQueryId: 'dq-1',
 			returnAll: false,
 			pageSize: 10,
@@ -173,7 +173,7 @@ describe('getData', () => {
 
 	it('uses GET with no body when userFilters is empty', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			authentication: 'token',
+			authentication: 'basic',
 			dataQueryId: 'dq-1',
 			returnAll: false,
 			pageSize: 10,
@@ -191,7 +191,7 @@ describe('getData', () => {
 
 	it('wraps a non-array single-page response', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
-			authentication: 'token',
+			authentication: 'basic',
 			dataQueryId: 'dq-1',
 			returnAll: false,
 			pageSize: 10,

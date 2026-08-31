@@ -30,6 +30,7 @@ interface MockContext {
 	getNodeParameter: ReturnType<typeof vi.fn>;
 	getCredentials: ReturnType<typeof vi.fn>;
 	httpRequestWithAuthentication: ReturnType<typeof vi.fn>;
+	httpRequest: ReturnType<typeof vi.fn>;
 }
 
 /**
@@ -57,14 +58,21 @@ function buildMockThis(
 	});
 	const getCredentials = vi.fn().mockResolvedValue(credentials);
 	const httpRequestWithAuthentication = vi.fn().mockResolvedValue({});
+	// Token-path helper: serves the access-token exchange, succeeds for data calls.
+	const httpRequest = vi.fn(async (options: { url?: unknown }) => {
+		if (String(options.url).endsWith('/ApiToken/GenerateAccessTokenFromApiToken')) {
+			return { statusCode: 200, body: { RawToken: 'minted-access-token' } };
+		}
+		return { statusCode: 200, body: {} };
+	});
 
 	const writable = mockThis as unknown as Record<string, unknown>;
 	writable.getNodeParameter = getNodeParameter;
 	writable.getCredentials = getCredentials;
 	writable.getNode = vi.fn(() => testNode);
-	writable.helpers = { httpRequestWithAuthentication };
+	writable.helpers = { httpRequestWithAuthentication, httpRequest };
 
-	return { mockThis, getNodeParameter, getCredentials, httpRequestWithAuthentication };
+	return { mockThis, getNodeParameter, getCredentials, httpRequestWithAuthentication, httpRequest };
 }
 
 /** Returns the (credentialType, options) tuple recorded for the Nth request. */
@@ -85,7 +93,7 @@ beforeEach(() => {
 
 describe('createTicket', () => {
 	const baseParams: ParamMap = {
-		authentication: 'token',
+		authentication: 'basic',
 		ticketType: 55,
 		category: 'category-guid',
 		subject: 'Printer is on fire',
@@ -111,7 +119,7 @@ describe('createTicket', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = callArgs(httpRequestWithAuthentication);
-		expect(credentialType).toBe('matrix42TokenApi');
+		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
@@ -150,19 +158,27 @@ describe('createTicket', () => {
 		expect(getNodeParameter).toHaveBeenCalledWith('additionalFields', 3, {});
 		// read inside matrix42ApiRequest, always at index 0
 		expect(getNodeParameter).toHaveBeenCalledWith('authentication', 0);
-		expect(getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
+		expect(getCredentials).toHaveBeenCalledWith('matrix42BasicApi');
 	});
 
-	it('uses the matrix42BasicApi credential type when authentication is "basic"', async () => {
-		const { mockThis, getCredentials, httpRequestWithAuthentication } = buildMockThis({
+	it('uses the matrix42TokenApi credential and the node-managed token flow for token auth', async () => {
+		const { mockThis, getCredentials, httpRequestWithAuthentication, httpRequest } = buildMockThis({
 			...baseParams,
-			authentication: 'basic',
+			authentication: 'webserviceToken',
 		});
 
 		await createTicket.call(mockThis, 0);
 
-		expect(getCredentials).toHaveBeenCalledWith('matrix42BasicApi');
-		expect(callArgs(httpRequestWithAuthentication)[0]).toBe('matrix42BasicApi');
+		expect(getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
+		// exchange + create request, both through the plain httpRequest helper
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+		expect(httpRequest).toHaveBeenCalledTimes(2);
+		const createOptions = httpRequest.mock.calls[1][0] as {
+			url: string;
+			headers: Record<string, string>;
+		};
+		expect(createOptions.url).toBe(`${BASE_URL}/ticket/create`);
+		expect(createOptions.headers.Authorization).toBe('Bearer minted-access-token');
 	});
 
 	it('propagates skipSslCertificateValidation from allowUnauthorizedCerts', async () => {
@@ -228,7 +244,7 @@ describe('createTicket', () => {
 			expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(2);
 
 			const [lookupCredentialType, lookupOptions] = callArgs(httpRequestWithAuthentication, 0);
-			expect(lookupCredentialType).toBe('matrix42TokenApi');
+			expect(lookupCredentialType).toBe('matrix42BasicApi');
 			expect(lookupOptions.method).toBe('GET');
 			expect(lookupOptions.url).toBe(`${BASE_URL}/data/fragments/SVMActivityPickupPriorityMapping`);
 			expect(lookupOptions.qs).toEqual({
@@ -361,7 +377,7 @@ describe('createTicket', () => {
 
 describe('closeTicket', () => {
 	const baseParams: ParamMap = {
-		authentication: 'token',
+		authentication: 'basic',
 		ticketEoid: 'ticket-eoid-1',
 		closeRelatedIncidents: true,
 		reason: 7,
@@ -382,7 +398,7 @@ describe('closeTicket', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = callArgs(httpRequestWithAuthentication);
-		expect(credentialType).toBe('matrix42TokenApi');
+		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
@@ -422,7 +438,7 @@ describe('closeTicket', () => {
 
 describe('transformTicket', () => {
 	const baseParams: ParamMap = {
-		authentication: 'token',
+		authentication: 'basic',
 		ticketEoid: 'ticket-eoid-2',
 		sourceTypeName: 'SPSActivityTypeIncident',
 		targetTypeName: 'SPSActivityTypeServiceRequest',
@@ -441,7 +457,7 @@ describe('transformTicket', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = callArgs(httpRequestWithAuthentication);
-		expect(credentialType).toBe('matrix42TokenApi');
+		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
@@ -508,7 +524,7 @@ describe('transformTicket', () => {
 
 describe('addJournalEntry', () => {
 	const baseParams: ParamMap = {
-		authentication: 'token',
+		authentication: 'basic',
 		ticketEoid: 'ticket-eoid-3',
 		comments: 'A journal comment',
 		entryType: 1,
@@ -532,7 +548,7 @@ describe('addJournalEntry', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = callArgs(httpRequestWithAuthentication);
-		expect(credentialType).toBe('matrix42TokenApi');
+		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',

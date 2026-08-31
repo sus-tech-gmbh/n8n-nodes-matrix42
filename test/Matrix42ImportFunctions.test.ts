@@ -18,11 +18,12 @@ interface MockContext {
 	getNodeParameter: ReturnType<typeof vi.fn>;
 	getCredentials: ReturnType<typeof vi.fn>;
 	httpRequestWithAuthentication: ReturnType<typeof vi.fn>;
+	httpRequest: ReturnType<typeof vi.fn>;
 }
 
 function createMockContext(options: MockContextOptions = {}): MockContext {
 	const {
-		parameters = { authentication: 'token', sequenceEoid: 'sequence-eoid-1' },
+		parameters = { authentication: 'basic', sequenceEoid: 'sequence-eoid-1' },
 		credentials = { serverUrl: 'https://m42.example.com' },
 		response = { RunId: 'run-1' },
 	} = options;
@@ -36,14 +37,30 @@ function createMockContext(options: MockContextOptions = {}): MockContext {
 	);
 	const getCredentials = vi.fn().mockResolvedValue(credentials);
 	const httpRequestWithAuthentication = vi.fn().mockResolvedValue(response);
+	// Token-path helper: serves the access-token exchange, then answers data calls.
+	const httpRequest = vi.fn(async (options: { url?: unknown }) => {
+		if (String(options.url).endsWith('/ApiToken/GenerateAccessTokenFromApiToken')) {
+			return { statusCode: 200, body: { RawToken: 'minted-access-token' } };
+		}
+		return { statusCode: 200, body: response };
+	});
 
 	mockThis.getNodeParameter = getNodeParameter as unknown as IExecuteFunctions['getNodeParameter'];
 	mockThis.getCredentials = getCredentials as unknown as IExecuteFunctions['getCredentials'];
+	mockThis.getNode = vi.fn().mockReturnValue({
+		id: 'test-node',
+		name: 'Matrix42',
+		type: 'n8n-nodes-matrix42.matrix42',
+		typeVersion: 2,
+		position: [0, 0],
+		parameters: {},
+	}) as unknown as IExecuteFunctions['getNode'];
 	mockThis.helpers = {
 		httpRequestWithAuthentication,
+		httpRequest,
 	} as unknown as IExecuteFunctions['helpers'];
 
-	return { mockThis, getNodeParameter, getCredentials, httpRequestWithAuthentication };
+	return { mockThis, getNodeParameter, getCredentials, httpRequestWithAuthentication, httpRequest };
 }
 
 describe('executeImportDefinition', () => {
@@ -109,7 +126,7 @@ describe('executeImportDefinition', () => {
 
 	it('builds the body with empty Parameters, the sequenceEoid as SequenceId, ActionType 3 and a v4 UUID Token', async () => {
 		const { mockThis, httpRequestWithAuthentication } = createMockContext({
-			parameters: { authentication: 'token', sequenceEoid: 'abc-123-def' },
+			parameters: { authentication: 'basic', sequenceEoid: 'abc-123-def' },
 		});
 
 		await executeImportDefinition.call(mockThis, 0);
@@ -154,7 +171,7 @@ describe('executeImportDefinition', () => {
 
 	it('reads sequenceEoid at the given item index and authentication at index 0', async () => {
 		const { mockThis, getNodeParameter } = createMockContext({
-			parameters: { authentication: 'token', sequenceEoid: 'seq-at-index-2' },
+			parameters: { authentication: 'basic', sequenceEoid: 'seq-at-index-2' },
 		});
 
 		await executeImportDefinition.call(mockThis, 2);
@@ -174,15 +191,26 @@ describe('executeImportDefinition', () => {
 		expect(httpRequestWithAuthentication.mock.calls[0][0]).toBe('matrix42BasicApi');
 	});
 
-	it('uses the matrix42TokenApi credential type for any non-basic authentication', async () => {
-		const { mockThis, getCredentials, httpRequestWithAuthentication } = createMockContext({
-			parameters: { authentication: 'token', sequenceEoid: 'seq-1' },
-		});
+	it('uses the matrix42TokenApi credential and the node-managed token flow for any non-basic authentication', async () => {
+		const { mockThis, getCredentials, httpRequestWithAuthentication, httpRequest } =
+			createMockContext({
+				parameters: { authentication: 'webserviceToken', sequenceEoid: 'seq-1' },
+			});
 
 		await executeImportDefinition.call(mockThis, 0);
 
 		expect(getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
-		expect(httpRequestWithAuthentication.mock.calls[0][0]).toBe('matrix42TokenApi');
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+		// exchange + import request
+		expect(httpRequest).toHaveBeenCalledTimes(2);
+		const importOptions = httpRequest.mock.calls[1][0] as {
+			url: string;
+			headers: Record<string, string>;
+		};
+		expect(importOptions.url).toBe(
+			'https://m42.example.com/m42Services/api/importdata/executeimportdefinition',
+		);
+		expect(importOptions.headers.Authorization).toBe('Bearer minted-access-token');
 	});
 
 	it('invokes httpRequestWithAuthentication with the execute-functions context as `this`', async () => {

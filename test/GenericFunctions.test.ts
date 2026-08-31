@@ -13,9 +13,24 @@ import {
 	normalizeServerUrl,
 } from '../nodes/Matrix42/GenericFunctions';
 
+const WEBSERVICE_TOKEN = 'api-token-secret';
+const EXCHANGE_PATH = '/m42Services/api/ApiToken/GenerateAccessTokenFromApiToken';
+
+/** Builds a structurally valid JWT whose payload carries the given `exp` (epoch seconds). */
+function makeJwt(expEpochSeconds: number): string {
+	const payload = Buffer.from(JSON.stringify({ exp: expEpochSeconds })).toString('base64url');
+	return `header.${payload}.signature`;
+}
+
+/** A JWT that expires comfortably in the future (16 h, like a real Matrix42 access token). */
+function freshJwt(): string {
+	return makeJwt(Math.floor(Date.now() / 1000) + 16 * 3600);
+}
+
 interface MockContext {
 	mockThis: IExecuteFunctions;
 	httpRequestWithAuthentication: ReturnType<typeof vi.fn>;
+	httpRequest: ReturnType<typeof vi.fn>;
 	getNodeParameter: ReturnType<typeof vi.fn>;
 	getCredentials: ReturnType<typeof vi.fn>;
 }
@@ -33,11 +48,20 @@ function createMockThis(
 	const explicitLanguage = overrides.explicitLanguage;
 
 	const httpRequestWithAuthentication = vi.fn().mockResolvedValue({ ok: true });
+	// Default token-path behavior: the exchange mints a fresh JWT, every other
+	// request succeeds. Individual tests override with mockImplementation.
+	const httpRequest = vi.fn(async (options: IHttpRequestOptions) => {
+		if (String(options.url).endsWith(EXCHANGE_PATH)) {
+			return { statusCode: 200, body: { RawToken: freshJwt() } };
+		}
+		return { statusCode: 200, body: { ok: true } };
+	});
 	const getNodeParameter = vi.fn((name: string, _index?: number) =>
 		name === 'authentication' ? authentication : undefined,
 	);
 	const getCredentials = vi.fn(async (_type: string) => ({
 		serverUrl,
+		webserviceToken: WEBSERVICE_TOKEN,
 		allowUnauthorizedCerts,
 		explicitLanguage,
 	}));
@@ -46,9 +70,29 @@ function createMockThis(
 	const writableThis = mockThis as unknown as Record<string, unknown>;
 	writableThis.getNodeParameter = getNodeParameter;
 	writableThis.getCredentials = getCredentials;
-	writableThis.helpers = { httpRequestWithAuthentication };
+	writableThis.getNode = vi.fn(() => ({
+		id: 'test-node-id',
+		name: 'Matrix42 Test',
+		type: 'n8n-nodes-matrix42.matrix42',
+		typeVersion: 2,
+		position: [0, 0],
+		parameters: {},
+	}));
+	writableThis.helpers = { httpRequestWithAuthentication, httpRequest };
 
-	return { mockThis, httpRequestWithAuthentication, getNodeParameter, getCredentials };
+	return { mockThis, httpRequestWithAuthentication, httpRequest, getNodeParameter, getCredentials };
+}
+
+/** Splits the recorded httpRequest calls into the exchange calls and the data calls. */
+function tokenCalls(ctx: MockContext): {
+	exchanges: IHttpRequestOptions[];
+	dataCalls: IHttpRequestOptions[];
+} {
+	const all = ctx.httpRequest.mock.calls.map((call) => call[0] as IHttpRequestOptions);
+	return {
+		exchanges: all.filter((options) => String(options.url).endsWith(EXCHANGE_PATH)),
+		dataCalls: all.filter((options) => !String(options.url).endsWith(EXCHANGE_PATH)),
+	};
 }
 
 function capturedOptions(ctx: MockContext): IHttpRequestOptions {
@@ -129,13 +173,18 @@ describe('matrix42ApiRequest', () => {
 			expect(ctx.httpRequestWithAuthentication.mock.calls[0][0]).toBe('matrix42BasicApi');
 		});
 
-		it('uses matrix42TokenApi when authentication is "token"', async () => {
-			const ctx = createMockThis({ authentication: 'token' });
+		it('uses matrix42TokenApi and the node-managed token flow when authentication is "webserviceToken"', async () => {
+			const ctx = createMockThis({ authentication: 'webserviceToken' });
 
 			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
 
 			expect(ctx.getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
-			expect(ctx.httpRequestWithAuthentication.mock.calls[0][0]).toBe('matrix42TokenApi');
+			// The token path never goes through httpRequestWithAuthentication —
+			// exchange and data request both use the plain httpRequest helper.
+			expect(ctx.httpRequestWithAuthentication).not.toHaveBeenCalled();
+			const { exchanges, dataCalls } = tokenCalls(ctx);
+			expect(exchanges).toHaveLength(1);
+			expect(dataCalls).toHaveLength(1);
 		});
 
 		it('falls back to matrix42TokenApi for any non-"basic" value', async () => {
@@ -144,7 +193,8 @@ describe('matrix42ApiRequest', () => {
 			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
 
 			expect(ctx.getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
-			expect(ctx.httpRequestWithAuthentication.mock.calls[0][0]).toBe('matrix42TokenApi');
+			expect(ctx.httpRequestWithAuthentication).not.toHaveBeenCalled();
+			expect(tokenCalls(ctx).exchanges).toHaveLength(1);
 		});
 	});
 
@@ -410,6 +460,244 @@ describe('matrix42ApiRequest', () => {
 
 			await expect(matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {})).rejects.toBe(
 				error,
+			);
+		});
+	});
+
+	describe('token authentication flow', () => {
+		const tokenCtx = (overrides: Parameters<typeof createMockThis>[0] = {}) =>
+			createMockThis({ authentication: 'webserviceToken', ...overrides });
+
+		it('exchanges the webservice token with an empty JSON POST before the first data request', async () => {
+			const ctx = tokenCtx({ allowUnauthorizedCerts: true });
+
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+			const { exchanges } = tokenCalls(ctx);
+			expect(exchanges).toHaveLength(1);
+			expect(exchanges[0]).toMatchObject({
+				method: 'POST',
+				url: `https://m42.example.com${EXCHANGE_PATH}`,
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${WEBSERVICE_TOKEN}`,
+				},
+				body: {},
+				json: true,
+				skipSslCertificateValidation: true,
+				// non-2xx statuses must come back as data, not as throws
+				returnFullResponse: true,
+				ignoreHttpStatusErrors: true,
+			});
+		});
+
+		it('sends the data request with the minted Bearer token and returns the response body', async () => {
+			const ctx = tokenCtx({ explicitLanguage: 'de-DE' });
+			const jwt = freshJwt();
+			ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
+				if (String(options.url).endsWith(EXCHANGE_PATH)) {
+					return { statusCode: 200, body: { RawToken: jwt } };
+				}
+				return { statusCode: 200, body: [{ ID: 'row-1' }] };
+			});
+
+			const result = await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {}, { a: 1 });
+
+			const { dataCalls } = tokenCalls(ctx);
+			expect(dataCalls).toHaveLength(1);
+			expect(dataCalls[0]).toMatchObject({
+				method: 'GET',
+				url: 'https://m42.example.com/m42Services/api/tickets',
+				qs: { a: 1 },
+				headers: {
+					'Content-Type': 'application/json',
+					'Explicit-Language': 'de-DE',
+					Authorization: `Bearer ${jwt}`,
+				},
+			});
+			expect(result).toEqual([{ ID: 'row-1' }]);
+		});
+
+		it('reuses the cached access token for subsequent requests on the same execution context', async () => {
+			const ctx = tokenCtx();
+
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/assets', {});
+			await matrix42ApiRequest.call(ctx.mockThis, 'POST', '/tickets', { Subject: 's' });
+
+			const { exchanges, dataCalls } = tokenCalls(ctx);
+			expect(exchanges).toHaveLength(1);
+			expect(dataCalls).toHaveLength(3);
+		});
+
+		it('mints a separate token per execution context (no cross-execution reuse)', async () => {
+			const first = tokenCtx();
+			const second = tokenCtx();
+
+			await matrix42ApiRequest.call(first.mockThis, 'GET', '/tickets', {});
+			await matrix42ApiRequest.call(second.mockThis, 'GET', '/tickets', {});
+
+			expect(tokenCalls(first).exchanges).toHaveLength(1);
+			expect(tokenCalls(second).exchanges).toHaveLength(1);
+		});
+
+		it('re-exchanges when the cached token is about to expire', async () => {
+			const ctx = tokenCtx();
+			// Expires in 30 s — inside the 60 s refresh buffer, so the second call must re-mint.
+			ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
+				if (String(options.url).endsWith(EXCHANGE_PATH)) {
+					return {
+						statusCode: 200,
+						body: { RawToken: makeJwt(Math.floor(Date.now() / 1000) + 30) },
+					};
+				}
+				return { statusCode: 200, body: {} };
+			});
+
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+			expect(tokenCalls(ctx).exchanges).toHaveLength(2);
+		});
+
+		it('still works when the minted token is not a parseable JWT (fallback lifetime)', async () => {
+			const ctx = tokenCtx();
+			ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
+				if (String(options.url).endsWith(EXCHANGE_PATH)) {
+					return { statusCode: 200, body: { RawToken: 'opaque-token' } };
+				}
+				return { statusCode: 200, body: { ok: true } };
+			});
+
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+			const { exchanges, dataCalls } = tokenCalls(ctx);
+			// fallback lifetime is minutes long, so the second call still uses the cache
+			expect(exchanges).toHaveLength(1);
+			expect(dataCalls[0].headers?.Authorization).toBe('Bearer opaque-token');
+		});
+
+		it.each([406, 401])(
+			'retries exactly once with a freshly minted token when the server answers %i',
+			async (statusCode) => {
+				const ctx = tokenCtx();
+				let mintCount = 0;
+				ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
+					if (String(options.url).endsWith(EXCHANGE_PATH)) {
+						mintCount += 1;
+						return { statusCode: 200, body: { RawToken: `token-${mintCount}` } };
+					}
+					const usedToken = String(options.headers?.Authorization);
+					if (usedToken === 'Bearer token-1') {
+						return { statusCode, body: undefined };
+					}
+					return { statusCode: 200, body: { recovered: true } };
+				});
+
+				const result = await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+				const { exchanges, dataCalls } = tokenCalls(ctx);
+				expect(exchanges).toHaveLength(2);
+				expect(dataCalls).toHaveLength(2);
+				expect(dataCalls[1].headers?.Authorization).toBe('Bearer token-2');
+				expect(result).toEqual({ recovered: true });
+			},
+		);
+
+		it('does not retry non-auth failures (a 500 is thrown without a second request)', async () => {
+			const ctx = tokenCtx();
+			ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
+				if (String(options.url).endsWith(EXCHANGE_PATH)) {
+					return { statusCode: 200, body: { RawToken: freshJwt() } };
+				}
+				return { statusCode: 500, body: { Message: 'boom' } };
+			});
+
+			await expect(
+				matrix42ApiRequest.call(ctx.mockThis, 'POST', '/ticket/create', { Subject: 's' }),
+			).rejects.toMatchObject({ httpCode: '500' });
+
+			const { exchanges, dataCalls } = tokenCalls(ctx);
+			expect(exchanges).toHaveLength(1);
+			expect(dataCalls).toHaveLength(1);
+		});
+
+		it('throws a descriptive auth error when the retry is rejected again', async () => {
+			const ctx = tokenCtx();
+			ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
+				if (String(options.url).endsWith(EXCHANGE_PATH)) {
+					return { statusCode: 200, body: { RawToken: freshJwt() } };
+				}
+				return { statusCode: 406, body: undefined };
+			});
+
+			await expect(matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {})).rejects.toMatchObject(
+				{
+					httpCode: '406',
+					description: expect.stringContaining('Webservice Token'),
+				},
+			);
+
+			const { exchanges, dataCalls } = tokenCalls(ctx);
+			expect(exchanges).toHaveLength(2);
+			expect(dataCalls).toHaveLength(2);
+		});
+
+		it('throws a descriptive error when the token exchange itself is rejected', async () => {
+			const ctx = tokenCtx();
+			ctx.httpRequest.mockResolvedValue({ statusCode: 406, body: undefined });
+
+			await expect(matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {})).rejects.toThrow(
+				/access-token exchange/,
+			);
+			expect(tokenCalls(ctx).dataCalls).toHaveLength(0);
+		});
+
+		it('throws when the exchange returns 200 without a RawToken', async () => {
+			const ctx = tokenCtx();
+			ctx.httpRequest.mockResolvedValue({ statusCode: 200, body: { Unexpected: true } });
+
+			await expect(matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {})).rejects.toThrow(
+				/access-token exchange/,
+			);
+		});
+
+		it('handles runtimes that throw on non-2xx instead of honoring ignoreHttpStatusErrors', async () => {
+			const ctx = tokenCtx();
+			let mintCount = 0;
+			ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
+				if (String(options.url).endsWith(EXCHANGE_PATH)) {
+					mintCount += 1;
+					return { statusCode: 200, body: { RawToken: `token-${mintCount}` } };
+				}
+				if (String(options.headers?.Authorization) === 'Bearer token-1') {
+					// axios-style throw of an older n8n runtime
+					throw Object.assign(new Error('Request failed with status code 406'), {
+						response: { status: 406, data: 'rejected' },
+					});
+				}
+				return { statusCode: 200, body: { recovered: true } };
+			});
+
+			const result = await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+			expect(result).toEqual({ recovered: true });
+			expect(tokenCalls(ctx).exchanges).toHaveLength(2);
+		});
+
+		it('rethrows errors without an HTTP status (network failure) unchanged', async () => {
+			const ctx = tokenCtx();
+			const networkError = new Error('ECONNREFUSED');
+			ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
+				if (String(options.url).endsWith(EXCHANGE_PATH)) {
+					return { statusCode: 200, body: { RawToken: freshJwt() } };
+				}
+				throw networkError;
+			});
+
+			await expect(matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {})).rejects.toBe(
+				networkError,
 			);
 		});
 	});
