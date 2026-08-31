@@ -1030,8 +1030,8 @@ describe('Matrix42.execute()', () => {
 				additionalFields: {
 					isFromEditDialog: true,
 					publish: true,
-					typeId: 't-1',
-					parameters: '[{"a":1}]',
+					typeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
+					parameters: '[{"Name":"a","Value":1}]',
 					fileIds: '["f1","f2"]',
 				},
 			},
@@ -1050,9 +1050,9 @@ describe('Matrix42.execute()', () => {
 			EntryType: 5,
 			Creator: 'user-c',
 			VisibleInPortal: true,
-			Parameters: [{ a: 1 }],
+			Parameters: [{ Name: 'a', Value: 1 }],
 			IsFromEditDialog: true,
-			TypeId: 't-1',
+			TypeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
 			FileIds: ['f1', 'f2'],
 		});
 		expect(result).toEqual([[{ json: { Message: 'Success' }, pairedItem: { item: 0 } }]]);
