@@ -1,5 +1,13 @@
 # n8n-nodes-matrix42
 
+[![CI](https://github.com/sus-tech-gmbh/n8n-nodes-matrix42/actions/workflows/ci.yml/badge.svg)](https://github.com/sus-tech-gmbh/n8n-nodes-matrix42/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/n8n-nodes-matrix42.svg)](https://www.npmjs.com/package/n8n-nodes-matrix42)
+[![npm downloads](https://img.shields.io/npm/dm/n8n-nodes-matrix42.svg)](https://www.npmjs.com/package/n8n-nodes-matrix42)
+[![node](https://img.shields.io/node/v/n8n-nodes-matrix42.svg)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+[![n8n](https://img.shields.io/badge/n8n-community_node-EA4B71.svg)](https://docs.n8n.io/integrations/community-nodes/)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 This is an n8n community node that integrates with the Matrix42 ESMP Web Services API. It allows you to retrieve and work with Data Fragments from Matrix42 Data Definitions directly in your n8n workflows.
 
 Matrix42’s ESMP API exposes CRUD‑style endpoints for data fragments, supporting OData‑like filtering, column selection, paging, sorting, and more.
@@ -55,7 +63,7 @@ This node supports multiple operations across different resources:
 
 -   **Transform** (`transform`): Transform a ticket into another type.
 
--   **Add Journal Entry** (`addJournalEntry`): Add a journal entry to a ticket.
+-   **Add Journal Entry** (`addJournalEntry`): Add a journal entry (comment) to a ticket. **Creator** is optional — left empty, the entry is attributed to the API user. Optional template **Parameters** are entered as Name/Value/Format rows; note that Matrix42 only renders such parameters through the localized templates of system-generated entry types, so they have no visible effect on a plain comment entry.
 
 ### Storage
 
@@ -64,6 +72,27 @@ This node supports multiple operations across different resources:
 ### Import
 
 -   **Execute** (`execute`): Run a predefined import definition to ingest data.
+
+## Matrix42 Trigger
+
+The package also ships a **Matrix42 Trigger** node — a polling trigger that starts a workflow when objects are created (or created/updated) in Matrix42. It works against any data definition, so "on new ticket" is just the default configuration (`SPSActivityClassBase`), and the same node covers users, assets, or custom classes.
+
+-   **Event**
+    -   *Ticket Created* (default) — the common case as a preset: fires for every new Service Desk ticket (`SPSActivityClassBase` via `CreatedDate`, both hardcoded), leaving only the ticket-type filter and the additional fields to configure.
+    -   *Object Created* — watches any data definition through a creation-date attribute (default `CreatedDate`; configurable, since not every class has one).
+    -   *Object Created or Updated* — watches the universal `TimeStamp` rowversion column, which exists on every data definition and changes on every write. Exactly-once, no configuration needed.
+-   **Data Definition** — the watched class, picked from the instance's schema.
+-   **Type Filter** — optionally narrow to specific configuration-item types (e.g. only Incidents); filtered server-side, and the dropdown only offers types composed of the selected data definition.
+-   **Additional fields** — an ASQL filter (AND-ed server-side), extra output columns, a per-poll limit, and *Fetch Full Object* to attach the complete object (all fragments) to each result.
+
+Behavior notes:
+
+-   Output rows always include the fragment `ID`, the object ID as `ObjectID` (what the ticket operations expect as EOID), the watermark attribute, `DisplayString` and `Expression-TypeID`.
+-   On activation the trigger baselines on the newest existing record — historic records never fire.
+-   The watermark comes from values the API itself returned (never the local clock), and boundary duplicates are deduplicated by ID, so events are neither lost nor duplicated — including rows created in the same millisecond and backlogs larger than the per-poll limit (they carry over to the next poll).
+-   "Fetch Test Event" in the editor returns the newest matching record without touching the trigger's state.
+-   A failing configuration (e.g. a missing created-date attribute) fails visibly in the editor and on activation. On an active workflow, a failing poll produces a regular failed execution (feeding any configured error workflow) and polling simply continues — the trigger never dies silently.
+-   Known limitation: a row committed by a long-running database transaction (or written by a clock-skewed server) can become visible *below* an already-advanced watermark and is then not picked up. Under normal Service Desk load this does not occur; it can matter next to heavy concurrent imports.
 
 ## Credentials
 
@@ -82,7 +111,7 @@ This node supports two authentication methods. Configure these under **Workflow 
 
 On execution, the node:
 
--   Exchanges the API Token for a short‑lived Bearer (JWT) access token via `GenerateAccessTokenFromApiToken` (handled automatically in the credential's pre‑authentication step; the access token is cached and refreshed on expiry).
+-   Exchanges the API Token for a short‑lived Bearer (JWT) access token via `GenerateAccessTokenFromApiToken` once per workflow execution, caches it for the duration of the run, and re‑exchanges it automatically shortly before it expires or when the server rejects it (Matrix42 signals a rejected token with HTTP 406, which n8n's built‑in credential refresh does not handle — the node therefore manages the exchange itself).
 
 -   Uses the access token in the `Authorization` header for all subsequent calls.
 
@@ -99,7 +128,7 @@ On execution, the node:
 
 ## Compatibility
 
--   **n8n**: Node API version 1; built and tested against `n8n-workflow` 2.x. Requires n8n 1.85 or later (uses `NodeConnectionTypes`). Last tested with n8n 2.2.3.
+-   **n8n**: Node API version 1; built and tested against `n8n-workflow` 2.x. Requires n8n 1.85 or later (uses `NodeConnectionTypes`). Last tested with n8n 2.36.9.
 
 -   **Node.js**: v22 or higher.
 
@@ -111,6 +140,13 @@ On execution, the node:
 * [Matrix42 Web Services](https://help.matrix42.com/030_ESMP/030_INT/Business_Processes_and_API_Integrations/Matrix42_Web_Services_API#Public_API)
 
 ## Version History
+
+**0.3.0:**
+- **New: Matrix42 Trigger node** — a polling trigger that starts workflows on Matrix42 changes. Events: **Ticket Created** (default preset — new Service Desk tickets, with a ticket-type filter), **Object Created** (any data definition, watched through a configurable creation-date attribute) and **Object Created or Updated** (the universal `TimeStamp` rowversion; works on every class, exactly-once). Server-side type/ASQL filtering, optional full-object fetch, and watermark semantics built on live-verified API behavior (tick-exact date comparisons, boundary dedup, baseline-on-activation so historic records never fire).
+- **Fixed: Webservice Token auth no longer fails after the access token expires** (reported as "auth invalidates itself after one day"). Matrix42 rejects an expired token with HTTP 406 — which n8n's built-in credential refresh (401-only) never picks up — so the node now performs the API-token → access-token exchange itself: once per execution, cached for the run, refreshed shortly before expiry and retried once on 401/406 (also covers server-side token revocation). Other failures are never retried.
+- **Add Journal Entry** reworked: **Parameters** is now a Name/Value/Format collection instead of a raw JSON field (the legacy JSON field of saved workflows is still read and validated); **Creator** is optional and, when empty, the entry is attributed to the API user; **Type ID** is validated as a GUID before sending. Documented that template parameters only render on system-generated entry types, not on plain comments.
+- Matrix42 validation rejections (400 with empty messages) now name the rejected fields in the error description instead of a bare "Bad request".
+- Last tested with n8n 2.36.9.
 
 **0.2.1:**
 - Wrap runtime execution errors in `NodeApiError` so HTTP status codes and response context surface in the n8n UI.
@@ -147,6 +183,15 @@ On execution, the node:
     -   Matrix42 Token API (API Token ↔︎ Bearer JWT exchange)
     -   Matrix42 Basic API (HTTP Basic Authentication)
    
+
+## Project
+
+| | |
+| --- | --- |
+| **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| **Code of conduct** | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+| **Security policy** | [SECURITY.md](SECURITY.md) |
+| **Releases** | [GitHub releases](https://github.com/sus-tech-gmbh/n8n-nodes-matrix42/releases) · published to npm from CI |
 
 ## Legal & Disclaimer
 

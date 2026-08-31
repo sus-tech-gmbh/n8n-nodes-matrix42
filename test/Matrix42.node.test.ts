@@ -37,6 +37,7 @@ const testNode: INode = {
 interface ExecContext {
 	mockThis: IExecuteFunctions;
 	http: ReturnType<typeof vi.fn>;
+	plainHttp: ReturnType<typeof vi.fn>;
 	getNodeParameter: ReturnType<typeof vi.fn>;
 	getCredentials: ReturnType<typeof vi.fn>;
 	assertBinaryData: ReturnType<typeof vi.fn>;
@@ -60,6 +61,14 @@ function createExecuteContext(options: {
 	const params = { state: 200, ...options.params };
 
 	const http = vi.fn().mockResolvedValue({ ok: true });
+	// Token-path helper (helpers.httpRequest): serves the access-token exchange,
+	// succeeds for data calls.
+	const plainHttp = vi.fn(async (requestOptions: { url?: unknown }) => {
+		if (String(requestOptions.url).endsWith('/ApiToken/GenerateAccessTokenFromApiToken')) {
+			return { statusCode: 200, body: { RawToken: 'minted-access-token' } };
+		}
+		return { statusCode: 200, body: { ok: true } };
+	});
 	const getNodeParameter = vi.fn((name: string, itemIndex?: number, fallback?: unknown) => {
 		if (Object.prototype.hasOwnProperty.call(params, name)) {
 			const value = params[name];
@@ -83,6 +92,7 @@ function createExecuteContext(options: {
 	writable.getNode = vi.fn(() => testNode);
 	writable.helpers = {
 		httpRequestWithAuthentication: http,
+		httpRequest: plainHttp,
 		returnJsonArray: (data: IDataObject | IDataObject[]): INodeExecutionData[] =>
 			(Array.isArray(data) ? data : [data]).map((json) => ({ json })),
 		constructExecutionMetaData: (
@@ -93,7 +103,15 @@ function createExecuteContext(options: {
 		getBinaryDataBuffer,
 	};
 
-	return { mockThis, http, getNodeParameter, getCredentials, assertBinaryData, getBinaryDataBuffer };
+	return {
+		mockThis,
+		http,
+		plainHttp,
+		getNodeParameter,
+		getCredentials,
+		assertBinaryData,
+		getBinaryDataBuffer,
+	};
 }
 
 interface LoadContext {
@@ -110,7 +128,7 @@ function createLoadOptionsContext(
 		http.mockResolvedValueOnce(response);
 	}
 
-	const allParams: Record<string, unknown> = { authentication: 'webserviceToken', ...params };
+	const allParams: Record<string, unknown> = { authentication: 'basic', ...params };
 	// matrix42ApiRequest reads getNodeParameter('authentication', 0); loadOptions read
 	// getNodeParameter('category'). Both signatures resolve by name here.
 	const getNodeParameter = vi.fn((name: string, fallback?: unknown) =>
@@ -456,7 +474,7 @@ describe('Matrix42.execute()', () => {
 
 	// A parameter map that satisfies the operations exercised by the dispatch table.
 	const dispatchParams: Record<string, unknown> = {
-		authentication: 'webserviceToken',
+		authentication: 'basic',
 		dataDefinition: 'DDX',
 		where: 'W',
 		columns: 'C',
@@ -523,13 +541,45 @@ describe('Matrix42.execute()', () => {
 			const lastCall = httpCall(ctx.http, ctx.http.mock.calls.length - 1);
 			expect(lastCall.options.method).toBe(method);
 			expect(lastCall.options.url).toBe(`${API_BASE}${endpoint}`);
-			expect(lastCall.credentialType).toBe('matrix42TokenApi');
+			expect(lastCall.credentialType).toBe('matrix42BasicApi');
 		},
 	);
 
+	it('token auth: execute() mints an access token once and sends data requests with it', async () => {
+		const ctx = createExecuteContext({
+			items: [{ json: {} }, { json: {} }],
+			params: {
+				...dispatchParams,
+				authentication: 'webserviceToken',
+				resource: 'dataFragment',
+				operation: 'getAll',
+				returnAll: false,
+				limit: 5,
+			},
+		});
+
+		await node.execute.call(ctx.mockThis);
+
+		// no request may take the credential-helper path in token mode
+		expect(ctx.http).not.toHaveBeenCalled();
+		const calls = ctx.plainHttp.mock.calls.map((call) => call[0] as { url: string; headers?: Record<string, string> });
+		const exchanges = calls.filter((options) =>
+			options.url.endsWith('/ApiToken/GenerateAccessTokenFromApiToken'),
+		);
+		const dataCalls = calls.filter(
+			(options) => !options.url.endsWith('/ApiToken/GenerateAccessTokenFromApiToken'),
+		);
+		// one execution context → exactly one exchange, shared by both items
+		expect(exchanges).toHaveLength(1);
+		expect(dataCalls).toHaveLength(2);
+		for (const options of dataCalls) {
+			expect(options.headers?.Authorization).toBe('Bearer minted-access-token');
+		}
+	});
+
 	it('throws a NodeOperationError for an unknown resource/operation combination', async () => {
 		const ctx = createExecuteContext({
-			params: { authentication: 'webserviceToken', resource: 'ticket', operation: 'bogus' },
+			params: { authentication: 'basic', resource: 'ticket', operation: 'bogus' },
 			continueOnFail: true, // still throws: the guard runs before the item loop
 		});
 
@@ -543,7 +593,7 @@ describe('Matrix42.execute()', () => {
 		const ctx = createExecuteContext({
 			items: [{ json: { first: true } }, { json: { second: true } }],
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataFragment',
 				operation: 'getAll',
 				dataDefinition: (i?: number) => `DD${i}`,
@@ -561,7 +611,7 @@ describe('Matrix42.execute()', () => {
 		expect(ctx.http).toHaveBeenCalledTimes(2);
 
 		const first = httpCall(ctx.http, 0);
-		expect(first.credentialType).toBe('matrix42TokenApi');
+		expect(first.credentialType).toBe('matrix42BasicApi');
 		expect(first.options.method).toBe('GET');
 		expect(first.options.url).toBe(`${API_BASE}/data/fragments/DD0`);
 		expect(first.options.qs).toEqual({
@@ -595,7 +645,7 @@ describe('Matrix42.execute()', () => {
 	it('dataFragment:getAll reads returnAll/limit/additionalFields with fallbacks and always sends pagesize=limit', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataFragment',
 				operation: 'getAll',
 				dataDefinition: 'DD',
@@ -618,7 +668,7 @@ describe('Matrix42.execute()', () => {
 		const fullPage = Array.from({ length: 500 }, (_, k) => ({ ID: `id-${k}` }));
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataFragment',
 				operation: 'getAll',
 				dataDefinition: 'DD',
@@ -650,7 +700,7 @@ describe('Matrix42.execute()', () => {
 	it('encodeURIComponent-escapes data-definition and id path segments', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataFragment',
 				operation: 'delete',
 				dataDefinition: 'Space Name',
@@ -667,7 +717,7 @@ describe('Matrix42.execute()', () => {
 	it('dataObject:get sends full in the query string and wraps the single response object', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataObject',
 				operation: 'get',
 				configurationItem: 'CI',
@@ -689,7 +739,7 @@ describe('Matrix42.execute()', () => {
 	it('dataObject:create wraps the response under objectId', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataObject',
 				operation: 'create',
 				configurationItem: 'CI',
@@ -710,7 +760,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:create sends the exact body/query and wraps the response as ticketEoid', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'create',
 				ticketType: 6,
@@ -760,7 +810,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:create omits blank/nil-GUID optional relations from the body', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'create',
 				ticketType: 5,
@@ -793,7 +843,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:create resolves priority Auto (-1) from the impact/urgency mapping', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'create',
 				ticketType: 5,
@@ -824,7 +874,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:create falls back to priority 2 when the mapping lookup returns an empty array', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'create',
 				ticketType: 5,
@@ -848,7 +898,7 @@ describe('Matrix42.execute()', () => {
 	it('wraps a create validation error (non-numeric impact) as NodeApiError', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'create',
 				ticketType: 5,
@@ -869,7 +919,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:close sends the exact body and returns a Success message item', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'close',
 				ticketEoid: 'eoid-9',
@@ -912,7 +962,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:transform sends ObjectIds + type names, adds set relations, and returns Success', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'transform',
 				ticketEoid: 'eoid-7',
@@ -944,7 +994,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:transform omits blank optional relations', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'transform',
 				ticketEoid: 'eoid-7',
@@ -969,7 +1019,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:addJournalEntry parses arrays, sends IsFromEditDialog, and returns Success', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'addJournalEntry',
 				ticketEoid: 'eoid-4',
@@ -980,8 +1030,8 @@ describe('Matrix42.execute()', () => {
 				additionalFields: {
 					isFromEditDialog: true,
 					publish: true,
-					typeId: 't-1',
-					parameters: '[{"a":1}]',
+					typeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
+					parameters: '[{"Name":"a","Value":1}]',
 					fileIds: '["f1","f2"]',
 				},
 			},
@@ -1000,9 +1050,9 @@ describe('Matrix42.execute()', () => {
 			EntryType: 5,
 			Creator: 'user-c',
 			VisibleInPortal: true,
-			Parameters: [{ a: 1 }],
+			Parameters: [{ Name: 'a', Value: 1 }],
 			IsFromEditDialog: true,
-			TypeId: 't-1',
+			TypeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
 			FileIds: ['f1', 'f2'],
 		});
 		expect(result).toEqual([[{ json: { Message: 'Success' }, pairedItem: { item: 0 } }]]);
@@ -1011,7 +1061,7 @@ describe('Matrix42.execute()', () => {
 	it('ticket:addJournalEntry applies defaults when additionalFields is empty', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'ticket',
 				operation: 'addJournalEntry',
 				ticketEoid: 'eoid-4',
@@ -1041,7 +1091,7 @@ describe('Matrix42.execute()', () => {
 	it('import:execute posts SequenceId/ActionType 3 with a fresh v4 token', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'import',
 				operation: 'execute',
 				sequenceEoid: 'seq-1',
@@ -1073,7 +1123,7 @@ describe('Matrix42.execute()', () => {
 		const buffer = new Uint8Array(11); // 11-byte payload; the source only reads .length
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'storage',
 				operation: 'upload',
 				filename: 'file.txt',
@@ -1151,7 +1201,7 @@ describe('Matrix42.execute()', () => {
 	it('storage:upload skips the comment call when no comment is provided', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'storage',
 				operation: 'upload',
 				filename: 'file.txt',
@@ -1177,7 +1227,7 @@ describe('Matrix42.execute()', () => {
 	it('storage:upload surfaces a NodeApiError when no configuration item matches the objectId', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'storage',
 				operation: 'upload',
 				filename: 'file.txt',
@@ -1213,7 +1263,7 @@ describe('Matrix42.execute()', () => {
 	it('sets skipSslCertificateValidation from the credential allowUnauthorizedCerts flag', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataObject',
 				operation: 'delete',
 				configurationItem: 'CI',
@@ -1231,7 +1281,7 @@ describe('Matrix42.execute()', () => {
 		const ctx = createExecuteContext({
 			items: [{ json: {} }, { json: {} }],
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataFragment',
 				operation: 'delete',
 				dataDefinition: 'DD',
@@ -1250,7 +1300,7 @@ describe('Matrix42.execute()', () => {
 	it('wraps request errors as NodeApiError when continueOnFail is false', async () => {
 		const ctx = createExecuteContext({
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataFragment',
 				operation: 'delete',
 				dataDefinition: 'DD',
@@ -1267,7 +1317,7 @@ describe('Matrix42.execute()', () => {
 		const ctx = createExecuteContext({
 			items: [{ json: {} }, { json: {} }],
 			params: {
-				authentication: 'webserviceToken',
+				authentication: 'basic',
 				resource: 'dataFragment',
 				operation: 'delete',
 				dataDefinition: 'DD',

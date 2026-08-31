@@ -30,6 +30,7 @@ interface MockContext {
 	getNodeParameter: ReturnType<typeof vi.fn>;
 	getCredentials: ReturnType<typeof vi.fn>;
 	httpRequestWithAuthentication: ReturnType<typeof vi.fn>;
+	httpRequest: ReturnType<typeof vi.fn>;
 }
 
 /**
@@ -57,14 +58,21 @@ function buildMockThis(
 	});
 	const getCredentials = vi.fn().mockResolvedValue(credentials);
 	const httpRequestWithAuthentication = vi.fn().mockResolvedValue({});
+	// Token-path helper: serves the access-token exchange, succeeds for data calls.
+	const httpRequest = vi.fn(async (options: { url?: unknown }) => {
+		if (String(options.url).endsWith('/ApiToken/GenerateAccessTokenFromApiToken')) {
+			return { statusCode: 200, body: { RawToken: 'minted-access-token' } };
+		}
+		return { statusCode: 200, body: {} };
+	});
 
 	const writable = mockThis as unknown as Record<string, unknown>;
 	writable.getNodeParameter = getNodeParameter;
 	writable.getCredentials = getCredentials;
 	writable.getNode = vi.fn(() => testNode);
-	writable.helpers = { httpRequestWithAuthentication };
+	writable.helpers = { httpRequestWithAuthentication, httpRequest };
 
-	return { mockThis, getNodeParameter, getCredentials, httpRequestWithAuthentication };
+	return { mockThis, getNodeParameter, getCredentials, httpRequestWithAuthentication, httpRequest };
 }
 
 /** Returns the (credentialType, options) tuple recorded for the Nth request. */
@@ -85,7 +93,7 @@ beforeEach(() => {
 
 describe('createTicket', () => {
 	const baseParams: ParamMap = {
-		authentication: 'token',
+		authentication: 'basic',
 		ticketType: 55,
 		category: 'category-guid',
 		subject: 'Printer is on fire',
@@ -111,7 +119,7 @@ describe('createTicket', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = callArgs(httpRequestWithAuthentication);
-		expect(credentialType).toBe('matrix42TokenApi');
+		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
@@ -150,19 +158,27 @@ describe('createTicket', () => {
 		expect(getNodeParameter).toHaveBeenCalledWith('additionalFields', 3, {});
 		// read inside matrix42ApiRequest, always at index 0
 		expect(getNodeParameter).toHaveBeenCalledWith('authentication', 0);
-		expect(getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
+		expect(getCredentials).toHaveBeenCalledWith('matrix42BasicApi');
 	});
 
-	it('uses the matrix42BasicApi credential type when authentication is "basic"', async () => {
-		const { mockThis, getCredentials, httpRequestWithAuthentication } = buildMockThis({
+	it('uses the matrix42TokenApi credential and the node-managed token flow for token auth', async () => {
+		const { mockThis, getCredentials, httpRequestWithAuthentication, httpRequest } = buildMockThis({
 			...baseParams,
-			authentication: 'basic',
+			authentication: 'webserviceToken',
 		});
 
 		await createTicket.call(mockThis, 0);
 
-		expect(getCredentials).toHaveBeenCalledWith('matrix42BasicApi');
-		expect(callArgs(httpRequestWithAuthentication)[0]).toBe('matrix42BasicApi');
+		expect(getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
+		// exchange + create request, both through the plain httpRequest helper
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+		expect(httpRequest).toHaveBeenCalledTimes(2);
+		const createOptions = httpRequest.mock.calls[1][0] as {
+			url: string;
+			headers: Record<string, string>;
+		};
+		expect(createOptions.url).toBe(`${BASE_URL}/ticket/create`);
+		expect(createOptions.headers.Authorization).toBe('Bearer minted-access-token');
 	});
 
 	it('propagates skipSslCertificateValidation from allowUnauthorizedCerts', async () => {
@@ -228,7 +244,7 @@ describe('createTicket', () => {
 			expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(2);
 
 			const [lookupCredentialType, lookupOptions] = callArgs(httpRequestWithAuthentication, 0);
-			expect(lookupCredentialType).toBe('matrix42TokenApi');
+			expect(lookupCredentialType).toBe('matrix42BasicApi');
 			expect(lookupOptions.method).toBe('GET');
 			expect(lookupOptions.url).toBe(`${BASE_URL}/data/fragments/SVMActivityPickupPriorityMapping`);
 			expect(lookupOptions.qs).toEqual({
@@ -361,7 +377,7 @@ describe('createTicket', () => {
 
 describe('closeTicket', () => {
 	const baseParams: ParamMap = {
-		authentication: 'token',
+		authentication: 'basic',
 		ticketEoid: 'ticket-eoid-1',
 		closeRelatedIncidents: true,
 		reason: 7,
@@ -382,7 +398,7 @@ describe('closeTicket', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = callArgs(httpRequestWithAuthentication);
-		expect(credentialType).toBe('matrix42TokenApi');
+		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
@@ -422,7 +438,7 @@ describe('closeTicket', () => {
 
 describe('transformTicket', () => {
 	const baseParams: ParamMap = {
-		authentication: 'token',
+		authentication: 'basic',
 		ticketEoid: 'ticket-eoid-2',
 		sourceTypeName: 'SPSActivityTypeIncident',
 		targetTypeName: 'SPSActivityTypeServiceRequest',
@@ -441,7 +457,7 @@ describe('transformTicket', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = callArgs(httpRequestWithAuthentication);
-		expect(credentialType).toBe('matrix42TokenApi');
+		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
@@ -508,7 +524,7 @@ describe('transformTicket', () => {
 
 describe('addJournalEntry', () => {
 	const baseParams: ParamMap = {
-		authentication: 'token',
+		authentication: 'basic',
 		ticketEoid: 'ticket-eoid-3',
 		comments: 'A journal comment',
 		entryType: 1,
@@ -516,11 +532,11 @@ describe('addJournalEntry', () => {
 		visibleInPortal: true,
 	};
 
-	it('POSTs to /journal/Add, parsing Parameters/FileIds to arrays and sending IsFromEditDialog (corrected spelling)', async () => {
+	it('POSTs to /journal/Add with parsed Parameters/FileIds, a GUID TypeId and IsFromEditDialog (corrected spelling)', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 			...baseParams,
 			additionalFields: {
-				typeId: 'type-guid',
+				typeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
 				publish: true,
 				fileIds: '["file-1","file-2"]',
 				parameters: '[{"Name":"Priority","Value":"High"}]',
@@ -532,7 +548,7 @@ describe('addJournalEntry', () => {
 
 		expect(httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
 		const [credentialType, options] = callArgs(httpRequestWithAuthentication);
-		expect(credentialType).toBe('matrix42TokenApi');
+		expect(credentialType).toBe('matrix42BasicApi');
 		expect(options).toEqual({
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
@@ -545,7 +561,7 @@ describe('addJournalEntry', () => {
 				VisibleInPortal: true,
 				Parameters: [{ Name: 'Priority', Value: 'High' }],
 				IsFromEditDialog: true,
-				TypeId: 'type-guid',
+				TypeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
 				FileIds: ['file-1', 'file-2'],
 			},
 			qs: {},
@@ -630,57 +646,184 @@ describe('addJournalEntry', () => {
 	it('includes only TypeId when typeId is set without fileIds', async () => {
 		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 			...baseParams,
-			additionalFields: { typeId: 'only-type-guid', publish: false, parameters: '' },
+			additionalFields: {
+				typeId: '019f8b52-9a05-e711-1010-e2edb1eae152',
+				publish: false,
+				parameters: '',
+			},
 		});
 
 		await addJournalEntry.call(mockThis, 0);
 
 		const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
-		expect(body.TypeId).toBe('only-type-guid');
+		expect(body.TypeId).toBe('019f8b52-9a05-e711-1010-e2edb1eae152');
 		expect('FileIds' in body).toBe(false);
 		// parameters '' parses to []
 		expect(body.Parameters).toEqual([]);
 	});
 
-	describe('parseJsonArray branches for Parameters/FileIds', () => {
-		it('wraps a JSON object string into a single-element array', async () => {
+	it('throws a descriptive NodeOperationError for a non-GUID Type ID and never issues a request', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			...baseParams,
+			additionalFields: { typeId: 'not-a-guid' },
+		});
+
+		await expect(addJournalEntry.call(mockThis, 0)).rejects.toThrow(
+			'The "Type ID" field must be a GUID, got: not-a-guid',
+		);
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('omits TypeId when typeId is an empty string', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			...baseParams,
+			additionalFields: { typeId: '' },
+		});
+
+		await addJournalEntry.call(mockThis, 0);
+
+		const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
+		expect('TypeId' in body).toBe(false);
+	});
+
+	it('omits Creator when it is blank ("" or nil GUID) and keeps a real one', async () => {
+		const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+			...baseParams,
+			creator: '',
+		});
+
+		await addJournalEntry.call(mockThis, 0);
+
+		const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
+		expect('Creator' in body).toBe(false);
+
+		const nilCtx = buildMockThis({ ...baseParams, creator: NIL_GUID });
+		await addJournalEntry.call(nilCtx.mockThis, 0);
+		const nilBody = callArgs(nilCtx.httpRequestWithAuthentication)[1].body as Record<
+			string,
+			unknown
+		>;
+		expect('Creator' in nilBody).toBe(false);
+
+		const setCtx = buildMockThis({ ...baseParams, creator: 'creator-guid' });
+		await addJournalEntry.call(setCtx.mockThis, 0);
+		const setBody = callArgs(setCtx.httpRequestWithAuthentication)[1].body as Record<
+			string,
+			unknown
+		>;
+		expect(setBody.Creator).toBe('creator-guid');
+	});
+
+	describe('journal parameters', () => {
+		it('maps the Parameters fixedCollection to {Name, Value, Format} objects, dropping an empty Format', async () => {
 			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 				...baseParams,
-				additionalFields: { parameters: '{"key":"value"}' },
+				additionalFields: {
+					journalParameters: {
+						parameter: [
+							{ name: 'TestParam', value: 'hello', format: '' },
+							{ name: 'Amount', value: '42', format: 'N2' },
+						],
+					},
+				},
 			});
 
 			await addJournalEntry.call(mockThis, 0);
 
 			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
-			expect(body.Parameters).toEqual([{ key: 'value' }]);
+			expect(body.Parameters).toEqual([
+				{ Name: 'TestParam', Value: 'hello' },
+				{ Name: 'Amount', Value: '42', Format: 'N2' },
+			]);
 		});
 
-		it('passes an already-array value through unchanged', async () => {
+		it('skips entirely blank collection rows (accidental "Add Parameter" clicks)', async () => {
 			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 				...baseParams,
-				additionalFields: { parameters: [1, 2, 3], fileIds: ['a', 'b'] },
+				additionalFields: {
+					journalParameters: {
+						parameter: [
+							{ name: '', value: '', format: '' },
+							{ name: 'Kept', value: 'yes' },
+						],
+					},
+				},
 			});
 
 			await addJournalEntry.call(mockThis, 0);
 
 			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
-			expect(body.Parameters).toEqual([1, 2, 3]);
-			expect(body.FileIds).toEqual(['a', 'b']);
+			expect(body.Parameters).toEqual([{ Name: 'Kept', Value: 'yes' }]);
 		});
 
-		it('wraps a non-array object value into a single-element array', async () => {
+		it('throws when a row has a value but no name (the API would store nameless junk)', async () => {
 			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
 				...baseParams,
-				additionalFields: { parameters: { a: 1 } },
+				additionalFields: {
+					journalParameters: { parameter: [{ name: '', value: 'orphan' }] },
+				},
+			});
+
+			await expect(addJournalEntry.call(mockThis, 0)).rejects.toThrow(
+				'Journal parameter 1 needs a non-empty "Name"',
+			);
+			expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+		});
+
+		it('still accepts the legacy raw-JSON parameters field, normalizing lowercase keys', async () => {
+			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+				...baseParams,
+				additionalFields: {
+					parameters: '[{"Name":"A","Value":"1"},{"name":"B","value":"2","format":"N0"}]',
+				},
 			});
 
 			await addJournalEntry.call(mockThis, 0);
 
 			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
-			expect(body.Parameters).toEqual([{ a: 1 }]);
+			expect(body.Parameters).toEqual([
+				{ Name: 'A', Value: '1' },
+				{ Name: 'B', Value: '2', Format: 'N0' },
+			]);
 		});
 
-		it('throws a descriptive error when Parameters is a non-JSON string', async () => {
+		it('combines fixedCollection rows with legacy JSON parameters', async () => {
+			const { mockThis, httpRequestWithAuthentication } = buildMockThis({
+				...baseParams,
+				additionalFields: {
+					journalParameters: { parameter: [{ name: 'FromUi', value: 'x' }] },
+					parameters: '[{"Name":"FromJson","Value":"y"}]',
+				},
+			});
+
+			await addJournalEntry.call(mockThis, 0);
+
+			const body = callArgs(httpRequestWithAuthentication)[1].body as Record<string, unknown>;
+			expect(body.Parameters).toEqual([
+				{ Name: 'FromUi', Value: 'x' },
+				{ Name: 'FromJson', Value: 'y' },
+			]);
+		});
+
+		it('rejects legacy JSON whose elements are not objects with a Name', async () => {
+			const wrongKeys = buildMockThis({
+				...baseParams,
+				additionalFields: { parameters: '[{"someKey":"v"}]' },
+			});
+			await expect(addJournalEntry.call(wrongKeys.mockThis, 0)).rejects.toThrow(
+				'Journal parameter 1 needs a non-empty "Name"',
+			);
+
+			const notObjects = buildMockThis({
+				...baseParams,
+				additionalFields: { parameters: '["a","b"]' },
+			});
+			await expect(addJournalEntry.call(notObjects.mockThis, 0)).rejects.toThrow(
+				'Journal parameter 1 must be an object with "Name" and "Value" keys',
+			);
+		});
+
+		it('throws a descriptive error when the legacy Parameters value is a non-JSON string', async () => {
 			const { mockThis } = buildMockThis({
 				...baseParams,
 				additionalFields: { parameters: 'file-1,file-2' },

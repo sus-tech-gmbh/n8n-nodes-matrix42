@@ -19,6 +19,7 @@ const API_BASE = `${SERVER_URL}/m42Services/api`;
 interface MockContext {
 	mockThis: IExecuteFunctions;
 	httpRequest: ReturnType<typeof vi.fn>;
+	plainHttpRequest: ReturnType<typeof vi.fn>;
 	getNodeParameter: ReturnType<typeof vi.fn>;
 	getCredentials: ReturnType<typeof vi.fn>;
 }
@@ -37,6 +38,13 @@ function createMockThis(
 ): MockContext {
 	const mockThis = mock<IExecuteFunctions>();
 	const httpRequest = vi.fn().mockResolvedValue(response);
+	// Token-path helper (helpers.httpRequest): serves the exchange, then the data response.
+	const plainHttpRequest = vi.fn(async (options: { url?: unknown }) => {
+		if (String(options.url).endsWith('/ApiToken/GenerateAccessTokenFromApiToken')) {
+			return { statusCode: 200, body: { RawToken: 'minted-access-token' } };
+		}
+		return { statusCode: 200, body: response };
+	});
 	const getNodeParameter = vi.fn(
 		(name: string, _itemIndex: number, fallback?: unknown): unknown =>
 			Object.prototype.hasOwnProperty.call(params, name) ? params[name] : fallback,
@@ -46,10 +54,18 @@ function createMockThis(
 	Object.assign(mockThis, {
 		getNodeParameter,
 		getCredentials,
-		helpers: { httpRequestWithAuthentication: httpRequest },
+		getNode: vi.fn(() => ({
+			id: 'test-node',
+			name: 'Matrix42',
+			type: 'n8n-nodes-matrix42.matrix42',
+			typeVersion: 2,
+			position: [0, 0],
+			parameters: {},
+		})),
+		helpers: { httpRequestWithAuthentication: httpRequest, httpRequest: plainHttpRequest },
 	});
 
-	return { mockThis, httpRequest, getNodeParameter, getCredentials };
+	return { mockThis, httpRequest, plainHttpRequest, getNodeParameter, getCredentials };
 }
 
 beforeEach(() => {
@@ -219,8 +235,8 @@ describe('getFragments', () => {
 		expect(getNodeParameter).not.toHaveBeenCalledWith('limit', expect.anything(), expect.anything());
 	});
 
-	it('uses the matrix42TokenApi credential type when authentication is not "basic"', async () => {
-		const { mockThis, httpRequest, getCredentials } = createMockThis(
+	it('uses the matrix42TokenApi credential and the node-managed token flow when authentication is not "basic"', async () => {
+		const { mockThis, httpRequest, plainHttpRequest, getCredentials } = createMockThis(
 			{ ...baseParams, authentication: 'webserviceToken' },
 			[],
 		);
@@ -228,7 +244,13 @@ describe('getFragments', () => {
 		await getFragments.call(mockThis, 0);
 
 		expect(getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
-		expect(httpRequest.mock.calls[0][0]).toBe('matrix42TokenApi');
+		expect(httpRequest).not.toHaveBeenCalled();
+		// exchange + data request through the plain httpRequest helper
+		expect(plainHttpRequest).toHaveBeenCalledTimes(2);
+		const dataOptions = plainHttpRequest.mock.calls[1][0] as {
+			headers: Record<string, string>;
+		};
+		expect(dataOptions.headers.Authorization).toBe('Bearer minted-access-token');
 	});
 
 	it('sets skipSslCertificateValidation to true when the credential allows unauthorized certs', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-matrix42",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Matrix42 Integration for n8n.",
   "keywords": [
     "n8n-community-node-package",
@@ -43,7 +43,8 @@
       "dist/credentials/Matrix42TokenApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/Matrix42/Matrix42.node.js"
+      "dist/nodes/Matrix42/Matrix42.node.js",
+      "dist/nodes/Matrix42/Matrix42Trigger.node.js"
     ]
   },
   "devDependencies": {
