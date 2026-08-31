@@ -1,5 +1,13 @@
 # n8n-nodes-matrix42
 
+[![CI](https://github.com/sus-tech-gmbh/n8n-nodes-matrix42/actions/workflows/ci.yml/badge.svg)](https://github.com/sus-tech-gmbh/n8n-nodes-matrix42/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/n8n-nodes-matrix42.svg)](https://www.npmjs.com/package/n8n-nodes-matrix42)
+[![npm downloads](https://img.shields.io/npm/dm/n8n-nodes-matrix42.svg)](https://www.npmjs.com/package/n8n-nodes-matrix42)
+[![node](https://img.shields.io/node/v/n8n-nodes-matrix42.svg)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+[![n8n](https://img.shields.io/badge/n8n-community_node-EA4B71.svg)](https://docs.n8n.io/integrations/community-nodes/)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 This is an n8n community node that integrates with the Matrix42 ESMP Web Services API. It allows you to retrieve and work with Data Fragments from Matrix42 Data Definitions directly in your n8n workflows.
 
 Matrix42’s ESMP API exposes CRUD‑style endpoints for data fragments, supporting OData‑like filtering, column selection, paging, sorting, and more.
@@ -134,6 +142,7 @@ On execution, the node:
 ## Version History
 
 **0.3.0:**
+- **New: Matrix42 Trigger node** — a polling trigger that starts workflows on Matrix42 changes. Events: **Ticket Created** (default preset — new Service Desk tickets, with a ticket-type filter), **Object Created** (any data definition, watched through a configurable creation-date attribute) and **Object Created or Updated** (the universal `TimeStamp` rowversion; works on every class, exactly-once). Server-side type/ASQL filtering, optional full-object fetch, and watermark semantics built on live-verified API behavior (tick-exact date comparisons, boundary dedup, baseline-on-activation so historic records never fire).
 - **Fixed: Webservice Token auth no longer fails after the access token expires** (reported as "auth invalidates itself after one day"). Matrix42 rejects an expired token with HTTP 406 — which n8n's built-in credential refresh (401-only) never picks up — so the node now performs the API-token → access-token exchange itself: once per execution, cached for the run, refreshed shortly before expiry and retried once on 401/406 (also covers server-side token revocation). Other failures are never retried.
 - **Add Journal Entry** reworked: **Parameters** is now a Name/Value/Format collection instead of a raw JSON field (the legacy JSON field of saved workflows is still read and validated); **Creator** is optional and, when empty, the entry is attributed to the API user; **Type ID** is validated as a GUID before sending. Documented that template parameters only render on system-generated entry types, not on plain comments.
 - Matrix42 validation rejections (400 with empty messages) now name the rejected fields in the error description instead of a bare "Bad request".
@@ -174,6 +183,15 @@ On execution, the node:
     -   Matrix42 Token API (API Token ↔︎ Bearer JWT exchange)
     -   Matrix42 Basic API (HTTP Basic Authentication)
    
+
+## Project
+
+| | |
+| --- | --- |
+| **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| **Code of conduct** | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+| **Security policy** | [SECURITY.md](SECURITY.md) |
+| **Releases** | [GitHub releases](https://github.com/sus-tech-gmbh/n8n-nodes-matrix42/releases) · published to npm from CI |
 
 ## Legal & Disclaimer
 
