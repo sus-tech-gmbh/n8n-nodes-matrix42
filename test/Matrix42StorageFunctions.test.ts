@@ -62,6 +62,17 @@ function buildMockThis(options: SetupOptions = {}) {
 	const httpRequestWithAuthentication = vi.fn().mockResolvedValue({});
 	httpRequestWithAuthentication.mockResolvedValueOnce(typeIdResponse);
 
+	// Token-path helper: serves the access-token exchange, then mirrors the same
+	// response sequence as httpRequestWithAuthentication (typeId lookup first).
+	let tokenDataCalls = 0;
+	const httpRequest = vi.fn(async (options: { url?: unknown }) => {
+		if (String(options.url).endsWith('/ApiToken/GenerateAccessTokenFromApiToken')) {
+			return { statusCode: 200, body: { RawToken: 'minted-access-token' } };
+		}
+		tokenDataCalls += 1;
+		return { statusCode: 200, body: tokenDataCalls === 1 ? typeIdResponse : {} };
+	});
+
 	const assertBinaryData = vi.fn().mockReturnValue({
 		data: '',
 		mimeType: 'application/pdf',
@@ -71,6 +82,7 @@ function buildMockThis(options: SetupOptions = {}) {
 
 	mockThis.helpers = {
 		httpRequestWithAuthentication,
+		httpRequest,
 		assertBinaryData,
 		getBinaryDataBuffer,
 	} as unknown as IExecuteFunctions['helpers'];
@@ -80,6 +92,7 @@ function buildMockThis(options: SetupOptions = {}) {
 		getNodeParameter,
 		getCredentials,
 		httpRequestWithAuthentication,
+		httpRequest,
 		assertBinaryData,
 		getBinaryDataBuffer,
 		buffer,
@@ -326,17 +339,25 @@ describe('uploadFileToCI', () => {
 		expect(result).toEqual([{ Message: 'Success' }]);
 	});
 
-	it('uses matrix42TokenApi credentials when authentication is not "basic"', async () => {
-		const { mockThis, getCredentials, httpRequestWithAuthentication } = buildMockThis({
-			params: { authentication: 'token' },
+	it('uses matrix42TokenApi credentials and the node-managed token flow when authentication is not "basic"', async () => {
+		const { mockThis, getCredentials, httpRequestWithAuthentication, httpRequest } = buildMockThis({
+			params: { authentication: 'webserviceToken' },
 		});
 
 		await uploadFileToCI.call(mockThis, 0);
 
 		expect(getCredentials).toHaveBeenCalledWith('matrix42TokenApi');
 		expect(getCredentials).not.toHaveBeenCalledWith('matrix42BasicApi');
-		for (const call of httpRequestWithAuthentication.mock.calls) {
-			expect(call[0]).toBe('matrix42TokenApi');
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+		// 1 exchange + 4 data calls (typeId lookup, getuploadurl, upload, finishUploading),
+		// every data call carrying the minted Bearer token
+		expect(httpRequest).toHaveBeenCalledTimes(5);
+		const dataCalls = httpRequest.mock.calls
+			.map((call) => call[0] as { url: string; headers?: Record<string, string> })
+			.filter((options) => !options.url.endsWith('/ApiToken/GenerateAccessTokenFromApiToken'));
+		expect(dataCalls).toHaveLength(4);
+		for (const options of dataCalls) {
+			expect(options.headers?.Authorization).toBe('Bearer minted-access-token');
 		}
 	});
 
