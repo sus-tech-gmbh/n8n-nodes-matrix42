@@ -60,6 +60,7 @@ export class Matrix42TokenApi implements ICredentialType {
 			type: 'hidden',
 			typeOptions: {
 				expirable: true,
+				password: true,
 			},
 			default: '',
 		},

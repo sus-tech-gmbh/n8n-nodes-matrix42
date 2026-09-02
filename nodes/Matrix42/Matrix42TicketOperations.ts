@@ -160,7 +160,6 @@ const createTicketOperation: INodeProperties[] = [
 		displayName: 'Priority',
 		name: 'priority',
 		type: 'options',
-		// eslint-disable-next-line n8n-nodes-base/node-param-options-type-unsorted-items
 		options: [
 			{
 				name: 'Auto',
@@ -168,8 +167,8 @@ const createTicketOperation: INodeProperties[] = [
 				description: 'Calculate the priority from impact and urgency',
 			},
 			{
-				name: 'Without',
-				value: 0,
+				name: 'High',
+				value: 3,
 			},
 			{
 				name: 'Low',
@@ -180,8 +179,8 @@ const createTicketOperation: INodeProperties[] = [
 				value: 2,
 			},
 			{
-				name: 'High',
-				value: 3,
+				name: 'Without',
+				value: 0,
 			},
 		],
 		default: -1,
