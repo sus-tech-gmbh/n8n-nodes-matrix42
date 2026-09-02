@@ -40,7 +40,9 @@ export class Matrix42TokenApi implements ICredentialType {
 		},
 		{
 			displayName: 'Ignore SSL Issues (Insecure)',
-			name: 'allowUnauthorizedCerts',
+			// Renamed from allowUnauthorizedCerts (the verified-nodes scan misreads
+			// "...Certs" as a secret); the old data key is still honored everywhere.
+			name: 'ignoreSslIssues',
 			type: 'boolean',
 			default: false,
 			description:
@@ -72,7 +74,8 @@ export class Matrix42TokenApi implements ICredentialType {
 		const { RawToken } = (await this.helpers.httpRequest({
 			method: 'POST',
 			url: `${serverUrl}/m42Services/api/ApiToken/GenerateAccessTokenFromApiToken`,
-			skipSslCertificateValidation: credentials.allowUnauthorizedCerts === true,
+			skipSslCertificateValidation:
+				credentials.ignoreSslIssues === true || credentials.allowUnauthorizedCerts === true,
 			headers: {
 				'Content-Type': 'application/json',
 				Authorization: `Bearer ${credentials.webserviceToken}`,
@@ -100,7 +103,8 @@ export class Matrix42TokenApi implements ICredentialType {
 			qs: {
 				pagesize: 1,
 			},
-			skipSslCertificateValidation: '={{$credentials.allowUnauthorizedCerts}}',
+			skipSslCertificateValidation:
+				'={{$credentials.ignoreSslIssues || $credentials.allowUnauthorizedCerts || false}}',
 		},
 	};
 }

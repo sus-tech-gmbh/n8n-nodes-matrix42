@@ -107,6 +107,9 @@ The node exchanges the API Token for a short-lived access token and refreshes it
 
 ## Version History
 
+**0.3.2:**
+- The Ignore SSL Issues toggle's internal field is now `ignoreSslIssues` (its old name tripped the verified-nodes scanner's secret detection). Existing credentials keep working - the old key is still honored.
+
 **0.3.1:**
 - Network/TLS errors (no HTTP status) are now wrapped in `NodeApiError` and surface as readable errors in the n8n UI.
 

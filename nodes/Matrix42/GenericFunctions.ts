@@ -13,8 +13,15 @@ import { NodeApiError } from 'n8n-workflow';
 interface Matrix42Credentials {
 	serverUrl: string;
 	webserviceToken?: string;
+	ignoreSslIssues?: boolean;
+	/** Legacy key of ignoreSslIssues — still honored for credentials saved before 0.3.2. */
 	allowUnauthorizedCerts?: boolean;
 	explicitLanguage?: string;
+}
+
+/** Whether the credential asks to skip SSL certificate validation (either key). */
+function allowsInsecureTls(credentials: Matrix42Credentials): boolean {
+	return credentials.ignoreSslIssues === true || credentials.allowUnauthorizedCerts === true;
 }
 
 type Matrix42Context = IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions | IPollFunctions;
@@ -132,7 +139,7 @@ async function getAccessToken(
 		},
 		body: {},
 		json: true,
-		skipSslCertificateValidation: credentials.allowUnauthorizedCerts === true,
+		skipSslCertificateValidation: allowsInsecureTls(credentials),
 	});
 
 	const rawToken =
@@ -171,7 +178,7 @@ export async function matrix42ApiRequest(
 	const authenticationMethod = this.getNodeParameter('authentication', 0) as string;
 	const credentialType = authenticationMethod === 'basic' ? 'matrix42BasicApi' : 'matrix42TokenApi';
 	const credentials = await this.getCredentials<Matrix42Credentials>(credentialType);
-	const { serverUrl, allowUnauthorizedCerts, explicitLanguage } = credentials;
+	const { serverUrl, explicitLanguage } = credentials;
 
 	const isJson = contentType?.toLowerCase().includes('application/json');
 	const hasBody =
@@ -192,7 +199,7 @@ export async function matrix42ApiRequest(
 		qs: query,
 		url: uri || `${normalizeServerUrl(serverUrl)}/m42Services/api${endpoint}`,
 		json: isJson,
-		skipSslCertificateValidation: allowUnauthorizedCerts === true,
+		skipSslCertificateValidation: allowsInsecureTls(credentials),
 	};
 
 	if (options.body === undefined) {

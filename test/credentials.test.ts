@@ -42,7 +42,7 @@ describe('Matrix42TokenApi credential', () => {
 			expect(credential.properties.map((p) => p.name)).toEqual([
 				'serverUrl',
 				'webserviceToken',
-				'allowUnauthorizedCerts',
+				'ignoreSslIssues',
 				'explicitLanguage',
 				'accessToken',
 			]);
@@ -76,11 +76,11 @@ describe('Matrix42TokenApi credential', () => {
 			});
 		});
 
-		it('should define allowUnauthorizedCerts as a boolean defaulting to false', () => {
-			const allow = credential.properties.find((p) => p.name === 'allowUnauthorizedCerts');
+		it('should define ignoreSslIssues as a boolean defaulting to false', () => {
+			const allow = credential.properties.find((p) => p.name === 'ignoreSslIssues');
 			expect(allow).toEqual({
 				displayName: 'Ignore SSL Issues (Insecure)',
-				name: 'allowUnauthorizedCerts',
+				name: 'ignoreSslIssues',
 				type: 'boolean',
 				default: false,
 				description:
@@ -136,9 +136,9 @@ describe('Matrix42TokenApi credential', () => {
 			expect(credential.test.request.qs).toEqual({ pagesize: 1 });
 		});
 
-		it('should skip SSL validation based on the allowUnauthorizedCerts expression', () => {
+		it('should skip SSL validation based on either SSL toggle key (new and legacy)', () => {
 			expect(credential.test.request.skipSslCertificateValidation).toBe(
-				'={{$credentials.allowUnauthorizedCerts}}',
+				'={{$credentials.ignoreSslIssues || $credentials.allowUnauthorizedCerts || false}}',
 			);
 		});
 	});
@@ -169,6 +169,21 @@ describe('Matrix42TokenApi credential', () => {
 				body: {},
 				json: true,
 			});
+		});
+
+		it('should skip SSL when the new ignoreSslIssues key is set', async () => {
+			const mockThis = mock<IHttpRequestHelper>();
+			mockThis.helpers.httpRequest = vi.fn().mockResolvedValue({ RawToken: 'x' });
+
+			await credential.preAuthentication!.call(mockThis, {
+				serverUrl: 'https://matrix42.example.com',
+				webserviceToken: 'token-3',
+				ignoreSslIssues: true,
+			});
+
+			expect(mockThis.helpers.httpRequest).toHaveBeenCalledWith(
+				expect.objectContaining({ skipSslCertificateValidation: true }),
+			);
 		});
 
 		it('should not skip SSL when allowUnauthorizedCerts is not exactly true and keep the untrimmed host', async () => {
@@ -229,7 +244,7 @@ describe('Matrix42BasicApi credential', () => {
 				'serverUrl',
 				'user',
 				'password',
-				'allowUnauthorizedCerts',
+				'ignoreSslIssues',
 				'explicitLanguage',
 			]);
 		});
@@ -272,11 +287,11 @@ describe('Matrix42BasicApi credential', () => {
 			});
 		});
 
-		it('should define allowUnauthorizedCerts as a boolean defaulting to false', () => {
-			const allow = credential.properties.find((p) => p.name === 'allowUnauthorizedCerts');
+		it('should define ignoreSslIssues as a boolean defaulting to false', () => {
+			const allow = credential.properties.find((p) => p.name === 'ignoreSslIssues');
 			expect(allow).toEqual({
 				displayName: 'Ignore SSL Issues (Insecure)',
-				name: 'allowUnauthorizedCerts',
+				name: 'ignoreSslIssues',
 				type: 'boolean',
 				default: false,
 				description:
@@ -313,9 +328,9 @@ describe('Matrix42BasicApi credential', () => {
 			expect(credential.test.request.qs).toEqual({ pagesize: 1 });
 		});
 
-		it('should skip SSL validation based on the allowUnauthorizedCerts expression', () => {
+		it('should skip SSL validation based on either SSL toggle key (new and legacy)', () => {
 			expect(credential.test.request.skipSslCertificateValidation).toBe(
-				'={{$credentials.allowUnauthorizedCerts}}',
+				'={{$credentials.ignoreSslIssues || $credentials.allowUnauthorizedCerts || false}}',
 			);
 		});
 	});

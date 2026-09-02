@@ -41,6 +41,7 @@ function createMockThis(
 		authentication?: string;
 		serverUrl?: string;
 		allowUnauthorizedCerts?: boolean;
+		ignoreSslIssues?: boolean;
 		explicitLanguage?: string;
 	} = {},
 ): MockContext {
@@ -64,6 +65,7 @@ function createMockThis(
 		serverUrl,
 		webserviceToken: WEBSERVICE_TOKEN,
 		allowUnauthorizedCerts,
+		ignoreSslIssues: overrides.ignoreSslIssues,
 		explicitLanguage,
 	}));
 
@@ -373,6 +375,14 @@ describe('matrix42ApiRequest', () => {
 
 		it('sets skipSslCertificateValidation to true when allowUnauthorizedCerts is true', async () => {
 			const ctx = createMockThis({ allowUnauthorizedCerts: true });
+
+			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
+
+			expect(capturedOptions(ctx).skipSslCertificateValidation).toBe(true);
+		});
+
+		it('sets skipSslCertificateValidation to true when the new ignoreSslIssues key is set', async () => {
+			const ctx = createMockThis({ ignoreSslIssues: true });
 
 			await matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {});
 
