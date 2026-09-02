@@ -82,7 +82,7 @@ interface Matrix42Response {
  * Sends a request and always resolves with `{ statusCode, body }`, whether the
  * runtime supports `ignoreHttpStatusErrors` (returns non-2xx as data) or is an
  * older n8n that throws on non-2xx (the status is then read from the error).
- * Errors without an HTTP status (network, DNS, TLS) are rethrown unchanged.
+ * Errors without an HTTP status (network, DNS, TLS) are wrapped in NodeApiError.
  */
 async function matrix42RawRequest(
 	this: Matrix42Context,
@@ -104,7 +104,7 @@ async function matrix42RawRequest(
 		if (Number.isFinite(statusCode) && statusCode > 0) {
 			return { statusCode, body: thrown?.response?.data, raw: error as JsonObject };
 		}
-		throw error;
+		throw new NodeApiError(this.getNode(), error as JsonObject);
 	}
 }
 

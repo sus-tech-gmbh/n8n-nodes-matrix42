@@ -4,17 +4,6 @@ Thanks for considering a contribution. This is a community project: Matrix42 ins
 enormously (modules, customizations, versions), and the fastest way this node improves is people
 reporting what their instance actually does.
 
-## The two hard rules
-
-**1. Never guess an attribute or endpoint.** Verify against a live instance — the schema endpoints
-(`/m42Services/api/Schema/classes`, `/Schema/types`) report what actually exists, and attribute sets
-differ per instance. A hardcoded assumption fails with an opaque `500` on the first instance that
-lacks it.
-
-**2. Never reproduce Matrix42's copyrighted material.** No Matrix42 source code and no copied
-documentation text — link to [docs.matrix42.com](https://docs.matrix42.com) instead. Data read from
-a live instance at runtime is fine; it is the user's own data, not something we ship.
-
 ## Development
 
 ```bash

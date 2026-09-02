@@ -94,7 +94,7 @@ describe('Matrix42TokenApi credential', () => {
 			expect(lang?.default).toBe('');
 		});
 
-		it('should define accessToken as a hidden expirable field', () => {
+		it('should define accessToken as a hidden, expirable, masked field', () => {
 			const accessToken = credential.properties.find((p) => p.name === 'accessToken');
 			expect(accessToken).toEqual({
 				displayName: 'Access Token',
@@ -102,6 +102,7 @@ describe('Matrix42TokenApi credential', () => {
 				type: 'hidden',
 				typeOptions: {
 					expirable: true,
+					password: true,
 				},
 				default: '',
 			});

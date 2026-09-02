@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
+import { NodeApiError } from 'n8n-workflow';
 import type {
 	IDataObject,
 	IExecuteFunctions,
@@ -686,7 +687,7 @@ describe('matrix42ApiRequest', () => {
 			expect(tokenCalls(ctx).exchanges).toHaveLength(2);
 		});
 
-		it('rethrows errors without an HTTP status (network failure) unchanged', async () => {
+		it('wraps errors without an HTTP status (network failure) in NodeApiError', async () => {
 			const ctx = tokenCtx();
 			const networkError = new Error('ECONNREFUSED');
 			ctx.httpRequest.mockImplementation(async (options: IHttpRequestOptions) => {
@@ -696,9 +697,9 @@ describe('matrix42ApiRequest', () => {
 				throw networkError;
 			});
 
-			await expect(matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {})).rejects.toBe(
-				networkError,
-			);
+			await expect(
+				matrix42ApiRequest.call(ctx.mockThis, 'GET', '/tickets', {}),
+			).rejects.toBeInstanceOf(NodeApiError);
 		});
 	});
 });

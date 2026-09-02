@@ -21,5 +21,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      # n8n's new community-nodes linter — enforces verified-nodes rules the
+      # classic eslint-plugin-n8n-nodes-base misses (e.g. require-node-api-error)
+      - run: npx --yes @n8n/node-cli@latest lint
       - run: npm test
       - run: npm run build

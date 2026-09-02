@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-matrix42",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Matrix42 Integration for n8n.",
   "keywords": [
     "n8n-community-node-package",
