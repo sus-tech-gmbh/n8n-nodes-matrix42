@@ -107,6 +107,9 @@ The node exchanges the API Token for a short-lived access token and refreshes it
 
 ## Version History
 
+**0.3.1:**
+- Network/TLS errors (no HTTP status) are now wrapped in `NodeApiError` and surface as readable errors in the n8n UI.
+
 **0.3.0:**
 - New **Matrix42 Trigger** node: polling trigger with Ticket Created (default), Object Created and Object Created or Updated events, server-side type/ASQL filtering and an optional full-object fetch.
 - Fixed Webservice Token auth failing once the access token expired (Matrix42 answers HTTP 406, which n8n's built-in refresh never reacts to); the node now refreshes the token itself.
