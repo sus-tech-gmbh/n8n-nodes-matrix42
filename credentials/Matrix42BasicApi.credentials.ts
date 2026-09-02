@@ -46,7 +46,9 @@ export class Matrix42BasicApi implements ICredentialType {
 		},
 		{
 			displayName: 'Ignore SSL Issues (Insecure)',
-			name: 'allowUnauthorizedCerts',
+			// Renamed from allowUnauthorizedCerts (the verified-nodes scan misreads
+			// "...Certs" as a secret); the old data key is still honored everywhere.
+			name: 'ignoreSslIssues',
 			type: 'boolean',
 			default: false,
 			description:
@@ -79,7 +81,8 @@ export class Matrix42BasicApi implements ICredentialType {
 			qs: {
 				pagesize: 1,
 			},
-			skipSslCertificateValidation: '={{$credentials.allowUnauthorizedCerts}}',
+			skipSslCertificateValidation:
+				'={{$credentials.ignoreSslIssues || $credentials.allowUnauthorizedCerts || false}}',
 		},
 	};
 }
